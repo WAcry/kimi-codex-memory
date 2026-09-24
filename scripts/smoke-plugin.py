@@ -26,7 +26,8 @@ def main():
     if not native_kimi:
         raise ValueError("A test-owned Kimi is required")
     with tempfile.TemporaryDirectory() as directory:
-        base = Path(directory)
+        # Windows temporary paths can use an 8.3 alias; the runtime resolves its home.
+        base = Path(directory).resolve()
         root = base / "installed plugin with spaces 中文"
         shutil.copytree(args.plugin, root)
         binary = root / "runtime" / f"{system}-{arch}" / "kimi-codex-memory" / name
