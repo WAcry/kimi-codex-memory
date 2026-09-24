@@ -19,7 +19,10 @@ def pack(root: Path, destination: Path) -> None:
                 relative = path.relative_to(root).as_posix()
                 info = zipfile.ZipInfo(relative, date_time=(2026, 1, 1, 0, 0, 0))
                 info.create_system = 3
-                mode = 0o755 if path.stat().st_mode & 0o111 else 0o644
+                # Windows checkouts cannot carry the Unix launcher executable bit.
+                mode = (
+                    0o755 if relative == "plugin/run-hook" or path.stat().st_mode & 0o111 else 0o644
+                )
                 info.external_attr = (stat.S_IFREG | mode) << 16
                 info.compress_type = zipfile.ZIP_DEFLATED
                 archive.writestr(info, path.read_bytes())

@@ -2,6 +2,8 @@
 *.py text eol=lf
 *.ts text eol=lf
 *.mjs text eol=lf
+*.cmd text eol=lf
+plugin/run-hook text eol=lf
 *.md text eol=lf
 *.toml text eol=lf
 *.json text eol=lf

@@ -1,8 +1,10 @@
 import hashlib
+import importlib.util
 import json
 import subprocess
 import sys
 import tomllib
+import zipfile
 from pathlib import Path
 
 from kimi_memory import __version__
@@ -10,6 +12,23 @@ from kimi_memory.cli import add_note, initialize
 from kimi_memory.files import atomic_write
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_platform_archive_preserves_unix_launcher_mode_even_on_windows(tmp_path):
+    spec = importlib.util.spec_from_file_location(
+        "archive_plugin", ROOT / "scripts/archive-plugin.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    root = tmp_path / "package"
+    launcher = root / "plugin/run-hook"
+    atomic_write(launcher, "#!/bin/sh\nexit 0\n", mode=0o600)
+    archive = tmp_path / "plugin-win32-x64.zip"
+    module.pack(root, archive)
+    with zipfile.ZipFile(archive) as zipped:
+        entry = zipped.getinfo("plugin/run-hook")
+        assert (entry.external_attr >> 16) & 0o777 == 0o755
+        assert zipped.read(entry) == b"#!/bin/sh\nexit 0\n"
 
 
 def test_upstream_prompts_and_notices_are_byte_identical_to_the_pinned_manifest():
