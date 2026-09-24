@@ -46,13 +46,13 @@
 
 当前 SessionStart hook 的 stdout 不进入模型。实现于 UserPromptSubmit
 首次检查并注入完整规则与可用摘要；即使没有摘要，也完成本上下文的检查。
-普通 SessionStart/resume 不重置标记，以保留已记录的上下文。插件 system
-prompt 保存稳定规则，并指明读取功能不依赖后台健康状态。
+普通 SessionStart/resume 不重置标记，以保留已记录的上下文。阅读规则与
+摘要是一个完整的 hook 消息，不再依赖插件 System Prompt。
 
 PostCompact 触发重新注入标记；其输出不会直接
-进入下一模型步骤。一次 turn 内自动压缩后，稳定系统规则要求 agent 在需要
-历史时读取本地摘要；下一次用户输入再自动补回。不声称与 Codex 的上下文优先级
-和生命周期逐事件完全一致。
+进入下一模型步骤。下一次用户输入才自动补回；不保证同一 turn 中压缩
+后的下一步骤已经拥有完整记忆规则。不声称与 Codex 的上下文优先级和
+生命周期逐事件完全一致，也不为这个窗口增设第二套静态规则。
 Codex 的对应调用链、首次生成与普通 resume 不推送的证据见 DESIGN 06。
 
 hook 通知仅保存 event、session ID 和时间。UserPromptSubmit 的大正文、普通
@@ -64,6 +64,9 @@ assistant 输出、图片字节都不写第二份。hook 内部设置 INTERNAL �
 输出格式保留 `<oai-mem-citation>`、`citation_entries` 和 `rollout_ids`。
 IDs 接受 Kimi 的原始 session 标识，不要求 UUID。程序仅解析最后一个完整的
 非代码围栏引用块，且只解析 completed step 的 assistant 文本。
+每份来源摘要头部用 session_id，合并索引也用 session_id。前台从已读
+来源的头部直接复制到 rollout_ids，保留原版引用块字段名；不把当前会话
+ID 或文件名 hash 当作来源 ID。提示词里不再出现 thread_id 或宿主适配附录。
 
 原生 cold transcript 的 stepId 是显示序号，不是日志中的完成事件 UUID。
 第一版使用原 triggerPromptId、完成时间、step ordinal、回答内容 hash 组合

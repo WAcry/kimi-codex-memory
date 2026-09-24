@@ -8,27 +8,32 @@ product_version = "2.1.0"
 transcript_contract = "native-main-agent-current"
 
 [[files]]
-path = "src/kimi_memory/prompts/stage_one_system_v2.md"
+path = "vendor/codex/memories/stage_one_system_v2.md"
+runtime_path = "src/kimi_memory/prompts/stage_one_system_v2.md"
 upstream_path = "codex-rs/memories/write/templates/memories/stage_one_system_v2.md"
 sha256 = "334c0d51a2c63bd317dac074155fb3ecf0a56af8b00657736bab9c74222372b4"
 
 [[files]]
-path = "src/kimi_memory/prompts/stage_one_input_v2.md"
+path = "vendor/codex/memories/stage_one_input_v2.md"
+runtime_path = "src/kimi_memory/prompts/stage_one_input_v2.md"
 upstream_path = "codex-rs/memories/write/templates/memories/stage_one_input_v2.md"
 sha256 = "8fd4bb25fe6bd746b2d46ad841ac3a195d220c3da0cb9230615e2347c6ef853e"
 
 [[files]]
-path = "src/kimi_memory/prompts/consolidation_v2.md"
+path = "vendor/codex/memories/consolidation_v2.md"
+runtime_path = "src/kimi_memory/prompts/consolidation_v2.md"
 upstream_path = "codex-rs/memories/write/templates/memories/consolidation_v2.md"
 sha256 = "7334fdb4aa5d958bcff54568a375d0b0145c19a611a1a22faa6bf251a46a5f0e"
 
 [[files]]
-path = "src/kimi_memory/prompts/read_path_v2.md"
+path = "vendor/codex/memories/read_path_v2.md"
+runtime_path = "src/kimi_memory/prompts/read_path_v2.md"
 upstream_path = "codex-rs/ext/memories/templates/memories/read_path_v2.md"
 sha256 = "2f81fa2e89f341a1b7b3cf11ee7b855087c4ab84ddad920980475465ef28ff27"
 
 [[files]]
-path = "src/kimi_memory/prompts/ad_hoc_instructions.md"
+path = "vendor/codex/memories/ad_hoc_instructions.md"
+runtime_path = "src/kimi_memory/prompts/ad_hoc_instructions.md"
 upstream_path = "codex-rs/memories/write/templates/extensions/ad_hoc/instructions.md"
 sha256 = "d36a36083d92f9d44efbd95e0e4b6e81d7d149e812f2bca2009b6dd4b8aa93e7"
 

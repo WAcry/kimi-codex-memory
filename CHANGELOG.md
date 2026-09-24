@@ -6,9 +6,14 @@ First public release of Kimi Codex Memory.
 - Uses Kimi's effective default model and credentials: subscription OAuth or
   third-party providers with Chat Completions, Responses or Anthropic Messages.
 - Codex memory-v2 extraction, consolidation, citation accounting and retention,
-  with the original prompts pinned and verified.
+  with pristine upstream prompts pinned and minimal Kimi-specific templates.
 - Offline memory remains readable when generation, authentication or the host
   history API fails. Injection follows initial-context and compaction boundaries.
+- One self-contained hook prompt, without duplicate plugin system instructions.
+  Custom SYSTEM.md templates do not need to include plugin sections. Silent
+  no-op hooks add no empty JSON messages to the model's conversation.
+- Source summaries and indexes use session_id consistently; the citation prompt
+  explicitly maps that header value to the source-ID field.
 - Tries new Kimi releases against the actual API without a product-version
   whitelist, and never upgrades Kimi on the user's behalf.
 

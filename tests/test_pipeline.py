@@ -28,7 +28,7 @@ def test_end_to_end_history_extraction_publication_and_offline_injection(home, c
     message = handle({"hook_event_name": "UserPromptSubmit", "session_id": "new-session"}, home)[
         "message"
     ]
-    assert "rollout_summaries/" in message and "rg/Grep" in message
+    assert "rollout_summaries/" in message and "Grep or rg" in message
     assert "RAW-INPUT-NOT-FOR-DURABLE-STORAGE" in extraction.calls[0][1]["content"]
     for path in home.rglob("*"):
         if path.is_file() and not path.is_symlink():

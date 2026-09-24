@@ -9,8 +9,9 @@
 分发渠道。可以使用必要的自动构建与 ZIP 发布，但不把构建工具变成用户依赖。
 
 Windows 是正式目标，与 macOS/Linux 一样需要平台测试。保留 Python 核心；
-不得仅为语言与 Codex 相同而重写 Rust。原版 memory-v2 prompts 原样保存，
-宿主名称、标识符、路径和受限工具的必要适配必须可审计。
+不得仅为语言与 Codex 相同而重写 Rust。Codex 原版 prompts 原样保存在
+vendor/codex；实际模板的最小改动按 ADR 0008 直接写入，不再追加一套
+宿主解释或通过替换自然语言来改指令。
 
 不额外配置时，提取与合并使用 Kimi 当前默认模型及其认证：包括 Kimi 订阅
 和第三方 provider。支持 OpenAI Chat Completions、Anthropic Messages、

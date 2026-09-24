@@ -19,6 +19,10 @@ CI 在 Windows、macOS、Linux 的 x64/ARM64 上执行原生测试和冻结包�
 发布包移到含空格及中文的目录后，移除 PATH 上的 Python/Node，验证 hook、
 注入和 frozen worker。模拟服务验证三种模型接口、token 续期、401 恢复、
 429 静默失败；模拟测试不能证明任意实际供应商的计费和模型质量。
+原生 prompt 测试还截获真实 Kimi 发送给本地脚本模型的请求，分别验证
+默认模板、未包含 plugin_sections 的 SYSTEM.md、继承 base_prompt 的
+SYSTEM.md、普通 resume、空记忆和禁用插件；检查完整上下文里只有一份
+记忆规则，并且无操作不产生包含 {} 的 hook_result。
 
 ## 认证
 

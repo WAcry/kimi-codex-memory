@@ -52,6 +52,10 @@ def test_native_distribution_versions_match_and_no_pypi_workflow():
         f"https://github.com/WAcry/kimi-codex-memory/releases/download/v{__version__}/kimi-codex-memory.zip"
     )
     assert package["private"] is True
+    assert (
+        not {"systemPrompt", "systemPromptPath", "sessionStart", "skillInstructions"}
+        & plugin.keys()
+    )
 
 
 def test_runtime_package_has_no_external_dependencies_and_pinned_entry():

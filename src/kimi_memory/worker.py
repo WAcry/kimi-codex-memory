@@ -140,11 +140,10 @@ def extract_one(
             system = (PROMPTS / "stage_one_system_v2.md").read_text(encoding="utf-8")
             template = (PROMPTS / "stage_one_input_v2.md").read_text(encoding="utf-8")
             replacements = {
-                "{{ rollout_path }}": "kimi-session:" + transcript.source.id,
-                "{{ rollout_cwd }}": transcript.source.cwd,
-                "{{ rollout_git_branch }}": "unknown; rely only on conversation evidence",
-                "{{ rollout_contents }}": contents,
-                "pre-rendered from rollout `.jsonl`; filtered response items": "normalized from the native Kimi transcript API; filtered evidence",
+                "{{ session_id }}": transcript.source.id,
+                "{{ session_cwd }}": transcript.source.cwd,
+                "{{ session_git_branch }}": "unknown; rely only on conversation evidence",
+                "{{ session_contents }}": contents,
             }
             for old, new in replacements.items():
                 template = template.replace(old, new)

@@ -113,7 +113,7 @@ def main():
         payload = json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "smoke-session"})
         first = json.loads(run(hook, input=payload, shell=True))
         assert "Synthetic preserved memory" in first["message"]
-        assert json.loads(run(hook, input=payload, shell=True)) == {}
+        assert run(hook, input=payload, shell=True) == ""
         assert json.loads(run([str(binary), "status"]))["summary_available"]
         # Exercise the frozen writer against an empty native Kimi home; no LLM is called.
         empty = base / "empty-memory"
@@ -130,16 +130,14 @@ def main():
         env["KIMI_MEMORY_HOME"] = str(background_home)
         env.pop("KIMI_MEMORY_NO_AUTOSTART")
         assert (
-            json.loads(
-                run(
-                    hook,
-                    input=json.dumps(
-                        {"hook_event_name": "SessionStart", "session_id": "background-smoke"}
-                    ),
-                    shell=True,
-                )
+            run(
+                hook,
+                input=json.dumps(
+                    {"hook_event_name": "SessionStart", "session_id": "background-smoke"}
+                ),
+                shell=True,
             )
-            == {}
+            == ""
         )
         status = background_home / "worker-status.json"
         deadline = time.monotonic() + 15

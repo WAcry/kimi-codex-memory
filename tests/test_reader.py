@@ -23,7 +23,7 @@ def test_reader_survives_broken_worker_config_database_and_status(home):
     )
     text = handle({"hook_event_name": "UserPromptSubmit", "session_id": "s1"}, home)["message"]
     assert "Previously published user preference" in text
-    assert "rg/Grep" in text and "<oai-mem-citation>" in text
+    assert "Grep or rg" in text and "<oai-mem-citation>" in text
     assert local_status(home)["summary_available"] is True
 
 
@@ -169,7 +169,7 @@ def test_hook_entry_fails_open_on_bad_payload(home, payload):
         timeout=5,
     )
     assert result.returncode == 0
-    assert json.loads(result.stdout) == {}
+    assert result.stdout == ""
 
 
 def test_hook_does_not_save_prompt_or_response(home):

@@ -41,8 +41,9 @@ contributors；有 reference_context_item 的普通 turn 只更新 world-state
 
 Kimi 的 PostCompact（`agentExternalHooksService.ts:440–447`）只通知，
 stdout 不直接进入模型。因此我们仍在下个 UserPromptSubmit 补入，而非
-向正在继续运行的同一 turn 强行写入上下文。持续保留的插件系统规则允许
-按需读取本地文件。这个宿主时机差异是明确边界，不新增引擎补丁。
+向正在继续运行的同一 turn 强行写入上下文。不再用第二套插件系统规则
+补这个时机差异；同一 turn 的压缩后步骤不保证拿到完整记忆规则。这个
+边界明确保留，不新增引擎补丁。
 
 reader receipt 记录 checked 与实际 injected：缺失摘要也完成一次检查；
 普通 SessionStart 不重置；PostCompact 重置。checked 是唯一的完成检查

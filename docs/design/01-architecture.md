@@ -5,9 +5,7 @@
 ## 两条运行路径
 
 ```text
-Kimi plugin system prompt         当前稳定的阅读与引用规则
-           │
-UserPromptSubmit → reader.py → 已发布 memory_summary.md
+UserPromptSubmit → reader.py → v2 阅读规则 + 已发布 memory_summary.md
            │                      │
            └──────────→ 前台 agent 自己 rg/Grep/Read
 
@@ -23,6 +21,9 @@ SessionStart / TurnStarted / Stop / SessionEnd
 reader 和 hook 渲染不导入 `config`、`store`、`http`、`kimi`、`models` 或 `worker`。
 CLI 对各功能使用延迟导入，避免 worker 的语法／依赖错误阻断 `render` 或 `hook`。
 读取配置独立，最近一次有效配置提供本地回退；即使 SQLite 不可读，文件仍可读。
+manifest 不声明 systemPrompt、systemPromptPath、sessionStart.skill 或
+skillInstructions，避免静态/动态内容重复，也不依赖自定义 profile 是否
+包含 plugin_sections。无操作时 stdout 必须为空，不能输出 JSON 空对象。
 
 Python 3.11+ 标准库覆盖 TOML、SQLite、HTTP、子进程、文件和 JSON。发布包
 自带 Python 运行环境；终端用户不需要 Python 或 pip。Windows 使用 msvcrt

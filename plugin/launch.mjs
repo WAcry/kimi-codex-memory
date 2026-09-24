@@ -27,7 +27,6 @@ if (!existsSync(binary)) {
     args = ['-m', 'kimi_memory', ...args];
   } else {
     if (mode === 'hook') {
-      process.stdout.write('{}\n');
       process.exit(0);
     }
     process.stderr.write('Install the release plugin from /plugins marketplace, not the source archive.\n');
@@ -42,7 +41,6 @@ child.stdin.on('error', () => {});
 child.stdout.pipe(process.stdout);
 child.stderr.pipe(process.stderr);
 child.on('error', () => {
-  if (mode === 'hook') process.stdout.write('{}\n');
   process.exitCode = mode === 'hook' ? 0 : 1;
 });
 child.on('close', code => { process.exitCode = mode === 'hook' ? 0 : (code ?? 1); });

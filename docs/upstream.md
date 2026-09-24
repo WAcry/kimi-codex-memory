@@ -1,19 +1,27 @@
 # 上游基线与原版模板
 
-精确 commit、源文件路径及 SHA-256 在仓库根目录 `upstream.toml` 中。测试逐个
-核对原版文件的字节 hash。它们不能被 formatter 或适配逻辑改写。
+精确 commit、源文件路径及 SHA-256 在仓库根目录 `upstream.toml` 中。
+原始五份模板归档在 vendor/codex/memories，测试逐个核对原文字节 hash。
+`runtime_path` 指向基于该原文作最小修改的执行模板；两者不能混称为原版。
 
 Codex 源码基线：`5c5308fc9a9ee789049d646ef11e5400384b9c6f`。
 Kimi 源码基线：`a1e4c13d411f75bd327e2c33077daff42ee63582`，产品版本 `2.1.0`。
 
-原样保存：stage-one system/input v2、consolidation v2、read-path v2、ad-hoc
-instructions，以及上游 LICENSE/NOTICE。额外的 `reader_system_kimi.md` 是
-本项目的宿主适配提示，不是伪称原版的模板。
+归档原样保存：stage-one system/input v2、consolidation v2、read-path v2、
+ad-hoc instructions，以及上游 LICENSE/NOTICE。执行模板可以直接比较：
+
+```bash
+git diff --no-index vendor/codex/memories/read_path_v2.md src/kimi_memory/prompts/read_path_v2.md
+```
+
+ad-hoc instructions 的执行版仍然逐字相同。未向模型提供第二套静态规则
+或宿主适配附录；具体原因和原生请求验证见 DESIGN 07、ADR 0008。
 
 ## 显式适配
 
-Kimi 原生 session ID 替代裸 UUID 约束；来源路由使用 `kimi-session:` 标识，
-不伪造 Codex JSONL 路径。提取前由原生 API 返回当前有效历史。
+来源文件与合并索引统一用 session_id；阅读 prompt 直接要求复制这个值
+到保留的 rollout_ids 引用字段。提取前由原生 API 返回当前有效历史，
+输入包含真实 session_id，不伪造文件路径或 URI。
 
 预算可配置，使用 Kimi 同类的 ASCII/非 ASCII token 估算，不要求字节数或
 比例逐个相同。合并只提供 list/read/write-summary，不暴露 shell 和用户文件。
@@ -21,8 +29,17 @@ Kimi 原生 session ID 替代裸 UUID 约束；来源路由使用 `kimi-session:
 发布采用独立 generation 与原子指针，替代原地多文件覆盖。引用收据基于原生
 transcript 暴露的完成信息，而不是不存在于该接口里的 raw step UUID。
 
-注入采用当前 Kimi 实际可用的 UserPromptSubmit 加稳定系统规则。SessionStart
-只重置和唤醒。读取失败隔离要求高于对 Codex 内部模块布局的字面镜像。
+注入只采用当前 Kimi 实际可用的 UserPromptSubmit，提供一份自包含的
+规则与摘要；SessionStart 只唤醒，PostCompact 才重置检查状态。reader
+仍与生成独立，无摘要时保持原版不提供 memory fragment 的行为。
+
+| 执行模板 | 相对原文的必要修改 |
+| --- | --- |
+| read_path_v2 | session summary 术语、Grep/rg、独立 notes 路径、异步 notes 语义、session_id 到引用字段的直接映射 |
+| stage_one_input_v2 | session 上下文与真实 ID；说明输入来自过滤后的 Kimi transcript 而非 raw JSONL |
+| stage_one_system_v2 | 两处 rollout 文本称谓改为 session，JSON 输出字段不变 |
+| consolidation_v2 | session_id 索引、预算占位符和实际可用的 write_summary 工具；其余格式/筛选要求保留 |
+| ad_hoc_instructions | 无修改 |
 
 没有 v1、raw_memories.md、MEMORY.md、自动生成 skills、向量数据库或完整历史
 的第二份存储。详细运行边界与验证方式见 `design/`，不可随意改变的决策见 `adr/`。
@@ -46,8 +63,8 @@ transcript 暴露的完成信息，而不是不存在于该接口里的 raw step
 Codex phase2 会启动隔离的 coding agent；其普通工具来自 core 的工具体系，
 并不是 memory-v2 专有 read/write 工具。这里保留受限的三个文件工具，是
 外置执行器必要的权限边界：描述必须准确反映实际能力，不能复制一个声称
-可以任意执行 shell 的工具描述，却提供完全不同的实现。任务 prompt 原样
-保存，与这些宿主工具声明分开审计。
+可以任意执行 shell 的工具描述，却提供完全不同的实现。原文归档与最小
+修改后的执行模板、宿主工具声明可以独立审计。
 
 ## 预算
 

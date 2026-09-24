@@ -102,8 +102,11 @@ def main() -> int:
         # Kimi exit code 2 means block. Memory never uses it, including on malformed input.
         result = {}
     try:
-        sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
+        # Kimi falls back to raw stdout when JSON has no message. Even '{}' becomes
+        # a hook_result message, so a no-op must have genuinely empty stdout.
+        if result:
+            sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
     except (OSError, BrokenPipeError):
         pass
     return 0
