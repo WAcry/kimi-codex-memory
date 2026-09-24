@@ -11,3 +11,7 @@ from Kimi Code, Copyright (c) 2026 Moonshot AI, under the MIT license.
 Original sources/license are in vendor/kimi-oauth; bundled runtime notices are in
 src/kimi_memory/native. Build-time bundling also includes proper-lockfile and its
 MIT/ISC-licensed dependencies; their licenses accompany the bundle.
+
+Native plugin runtimes embed CPython and the unmodified PyInstaller bootloader.
+Their redistribution terms, including the PyInstaller bootloader exception,
+are included in each platform runtime's licenses directory.

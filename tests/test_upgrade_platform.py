@@ -10,7 +10,7 @@ from conftest import seed_published
 from kimi_memory.errors import ConfigurationError
 from kimi_memory.files import atomic_write, file_lock, published_root
 from kimi_memory.hooks import handle, wake
-from kimi_memory.platform import kimi_command, process_alive, worker_command
+from kimi_memory.platform import kimi_command, process_alive, remove_owned_tree, worker_command
 from kimi_memory.reader import render
 from kimi_memory.store import Store
 from kimi_memory.worker import run
@@ -121,6 +121,17 @@ def test_frozen_worker_restarts_own_binary_not_python_module(monkeypatch):
 def test_process_liveness_does_not_signal_or_terminate_current_process():
     assert process_alive(os.getpid())
     assert not process_alive(0)
+
+
+def test_owned_git_cleanup_handles_windows_readonly_objects(tmp_path):
+    import stat
+
+    root = tmp_path / "owned-staging"
+    obj = root / ".git/objects/aa/synthetic"
+    atomic_write(obj, "test-owned Git object")
+    obj.chmod(stat.S_IREAD)
+    remove_owned_tree(root)
+    assert not root.exists()
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows npm shim contract")

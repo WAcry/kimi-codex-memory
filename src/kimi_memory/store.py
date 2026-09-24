@@ -239,16 +239,27 @@ class Store:
                 (source.id, source.updated_at, version, now),
             )
 
-    def selected(self, *, cutoff: float, limit: int) -> list[dict]:
+    def selected(self, *, cutoff: float, limit: int, accept=None) -> list[dict]:
+        if limit <= 0:
+            return []
         with self.lock:
-            rows = self.db.execute(
+            cursor = self.db.execute(
                 """SELECT * FROM summaries
                 WHERE COALESCE(last_usage,source_updated_at)>=?
                 ORDER BY COALESCE(usage_count,0) DESC,COALESCE(last_usage,source_updated_at) DESC,
-                    source_updated_at DESC,source_id DESC LIMIT ?""",
-                (cutoff, limit),
-            ).fetchall()
-        return sorted((dict(row) for row in rows), key=lambda row: row["source_id"])
+                    source_updated_at DESC,source_id DESC""",
+                (cutoff,),
+            )
+            rows = []
+            for record in cursor:
+                row = dict(record)
+                if accept is not None and not accept(row):
+                    continue
+                rows.append(row)
+                if len(rows) >= limit:
+                    break
+            cursor.close()
+        return sorted(rows, key=lambda row: row["source_id"])
 
     def prune(self, *, cutoff: float, limit: int) -> int:
         with self.transaction() as db:

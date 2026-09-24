@@ -3,9 +3,34 @@
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 from pathlib import Path
+
+from .errors import UnsafePathError
+
+
+def remove_owned_tree(path: Path) -> None:
+    """Remove our staging/baseline tree, including Windows read-only Git objects."""
+    if path.is_symlink():
+        raise UnsafePathError("Refusing to remove a linked runtime tree")
+    root = path.resolve()
+
+    def retry_readonly(function, name, info):
+        error = info[1]
+        target = Path(name)
+        if (
+            os.name != "nt"
+            or not isinstance(error, PermissionError)
+            or target.is_symlink()
+            or not target.resolve().is_relative_to(root)
+        ):
+            raise error
+        os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
+        function(name)
+
+    shutil.rmtree(path, onerror=retry_readonly)
 
 
 def process_options(*, detached: bool = False) -> dict:

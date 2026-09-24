@@ -3,7 +3,6 @@
 import json
 import os
 import re
-import shutil
 import subprocess
 import time
 import uuid
@@ -24,6 +23,7 @@ from .files import (
     within,
     write_json,
 )
+from .platform import remove_owned_tree
 from .store import Store
 
 HEADINGS = ["## User Profile", "## User preferences", "## General Tips", "## What's in Memory"]
@@ -388,7 +388,7 @@ class Workspace:
 
     def close(self) -> None:
         if self.path.is_dir() and self.path.parent == self.home / "_staging":
-            shutil.rmtree(self.path)
+            remove_owned_tree(self.path)
 
 
 def recover_publication(home: Path, store: Store) -> None:
@@ -432,4 +432,4 @@ def prune_generations(home: Path, keep: int) -> None:
             continue
     for _, path in candidates:
         if path not in retained:
-            shutil.rmtree(path)
+            remove_owned_tree(path)

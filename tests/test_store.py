@@ -34,6 +34,15 @@ def test_only_one_owner_can_claim_a_job(store):
     assert sum(owner is not None for owner in owners) == 1
 
 
+def test_project_scope_filter_is_applied_before_selection_limit(store, source):
+    private = replace(source, id="private", cwd="/private", updated_at=source.updated_at + 10)
+    save(store, private)
+    save(store, source)
+    assert store.selected(cutoff=0, limit=1)[0]["source_id"] == private.id
+    rows = store.selected(cutoff=0, limit=1, accept=lambda row: row["cwd"] != "/private")
+    assert len(rows) == 1 and rows[0]["source_id"] == source.id
+
+
 def test_lease_fencing_rejects_old_owner_and_does_not_clear_new_owner(store, source):
     now = time.time()
     old = store.claim("extract:" + source.id, "v", now=now, lease=10, attempts=3)

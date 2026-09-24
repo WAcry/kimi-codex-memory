@@ -47,6 +47,19 @@ def test_second_pass_does_not_repeat_extraction_or_consolidation(home, config, t
     assert second["publication"] == "unchanged"
 
 
+def test_long_extraction_preserves_final_corrections_like_codex(home, config, transcript):
+    store = Store(home / "state.sqlite")
+    try:
+        text = "EARLIER TASK\n" + "证据" * 5000 + "\nFINAL USER CORRECTION"
+        extract_one(transcript, store, config, ScriptModel(summary=text), home)
+        summary = store.selected(cutoff=0, limit=1)[0]["summary"]
+        assert summary.startswith("EARLIER TASK") and summary.endswith("FINAL USER CORRECTION")
+        assert "chars truncated" in summary and "�" not in summary
+        assert len(summary.encode()) <= config.generation.max_rollout_summary_bytes + 64
+    finally:
+        store.close()
+
+
 def test_citation_sync_before_idle_generation_and_retention(home, config, transcript):
     store = Store(home / "state.sqlite")
     cited = replace(transcript.source, id="session_source", updated_at=time.time() - 31 * 86400)

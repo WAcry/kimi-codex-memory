@@ -101,6 +101,20 @@ def utf8_head(text: str, max_bytes: int) -> str:
     return text.encode("utf-8")[: max(0, max_bytes)].decode("utf-8", errors="ignore")
 
 
+def utf8_middle(text: str, max_bytes: int) -> str:
+    """Codex truncate_middle_chars semantics: retain both ends plus an omission marker."""
+    raw = text.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return text
+    left_budget = max(0, max_bytes // 2)
+    right_budget = max(0, max_bytes - left_budget)
+    prefix = raw[:left_budget].decode("utf-8", errors="ignore")
+    suffix = raw[-right_budget:].decode("utf-8", errors="ignore") if right_budget else ""
+    removed = len(text) - len(prefix) - len(suffix)
+    # As upstream, the marker is additional to the retained-text byte budget.
+    return prefix + f"…{removed} chars truncated…" + suffix
+
+
 @contextmanager
 def file_lock(path: Path, *, blocking: bool = False):
     private_dir(path.parent)

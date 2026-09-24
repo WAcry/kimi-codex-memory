@@ -10,7 +10,7 @@ from .citations import collect_citations
 from .config import WorkerConfig, load_worker_config
 from .errors import BusyError, MemoryErrorBase, ModelError, ResyncRequired, UnsafePathError
 from .evidence import budget_evidence, normalize, redact
-from .files import file_lock, memory_home, read_json, utf8_head, write_json
+from .files import file_lock, memory_home, read_json, utf8_middle, write_json
 from .kimi import KimiClient, Transcript
 from .models import CallBudget, Model
 from .server import ServerManager
@@ -173,7 +173,7 @@ def extract_one(
                 redact(output["rollout_summary"].strip()),
                 output["rollout_slug"].strip(),
             )
-            summary = utf8_head(summary, gen.max_rollout_summary_bytes)
+            summary = utf8_middle(summary, gen.max_rollout_summary_bytes)
             if len(slug.encode()) > 256:
                 raise ModelError("Extracted slug exceeds its byte limit")
             if not summary and slug:
@@ -244,13 +244,11 @@ def consolidate_agent(workspace: Workspace, model) -> None:
 
 def phase_two(store: Store, config: WorkerConfig, home: Path, model, *, can_publish=None) -> str:
     gen = config.generation
-    rows = [
-        row
-        for row in store.selected(
-            cutoff=time.time() - gen.retention_days * 86400, limit=gen.max_consolidation_sources
-        )
-        if allowed(row["source_id"], row["cwd"], config)
-    ]
+    rows = store.selected(
+        cutoff=time.time() - gen.retention_days * 86400,
+        limit=gen.max_consolidation_sources,
+        accept=lambda row: allowed(row["source_id"], row["cwd"], config),
+    )
     workspace = Workspace(home, rows, gen)
     owner = None
     try:

@@ -92,6 +92,8 @@ def main():
             return result.stdout
 
         assert run([str(binary), "--version"]).strip() == "0.2.0"
+        assert (binary.parent / "licenses/CPython-LICENSE.txt").is_file()
+        assert (binary.parent / "licenses/PyInstaller-COPYING.txt").is_file()
         run([str(binary), "init"])
         generation = "a" * 32
         published = home / "_generations" / generation

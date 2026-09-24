@@ -1,11 +1,13 @@
 """Build a self-contained platform runtime; CI assembles the universal plugin ZIP."""
 
 import argparse
+import importlib.metadata
 import json
 import platform
 import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +60,25 @@ def main():
         / ("kimi-codex-memory.exe" if system == "win32" else "kimi-codex-memory")
     )
     subprocess.run([str(binary), "--version"], check=True)
+    notices = binary.parent / "licenses"
+    notices.mkdir(exist_ok=True)
+    python_license = next(
+        (
+            p
+            for p in (
+                Path(sys.base_prefix) / "LICENSE.txt",
+                Path(sysconfig.get_path("stdlib")) / "LICENSE.txt",
+            )
+            if p.is_file()
+        ),
+        None,
+    )
+    if python_license is None:
+        raise RuntimeError("CPython redistribution license was not found")
+    shutil.copy2(python_license, notices / "CPython-LICENSE.txt")
+    distribution = importlib.metadata.distribution("pyinstaller")
+    copying = next(p for p in distribution.files if str(p).endswith("COPYING.txt"))
+    shutil.copy2(distribution.locate_file(copying), notices / "PyInstaller-COPYING.txt")
     print(json.dumps({"plugin": str(target), "platform": f"{system}-{arch}"}))
 
 
