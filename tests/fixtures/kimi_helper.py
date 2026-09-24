@@ -8,6 +8,7 @@ import uuid
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from socketserver import TCPServer
 from urllib.parse import urlsplit
 
 installation = Path(sys.argv[1])
@@ -64,7 +65,16 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
 
-with HTTPServer(("127.0.0.1", 0), Handler) as server:
+class LoopbackServer(HTTPServer):
+    def server_bind(self):
+        # HTTPServer's reverse-DNS lookup is irrelevant to this local fixture and
+        # can stall on hosted runner DNS, outside the lifecycle being exercised.
+        TCPServer.server_bind(self)
+        self.server_name = "localhost"
+        self.server_port = self.server_address[1]
+
+
+with LoopbackServer(("127.0.0.1", 0), Handler) as server:
     directory = home / "server/instances"
     directory.mkdir(parents=True, exist_ok=True)
     entry = directory / f"{os.getpid()}.json"
