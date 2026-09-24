@@ -62,8 +62,11 @@ def test_running_helper_survives_installation_upgrade_and_next_batch_uses_new_ve
     installation = tmp_path / "installation"
     atomic_write(installation / "version", "2.1.0")
     script = Path(__file__).parent / "fixtures/kimi_helper.py"
+    # Windows venv python.exe is a redirector with a different child PID. The real
+    # interpreter models a native Kimi executable, whose PID registers the listener.
+    interpreter = getattr(sys, "_base_executable", sys.executable)
     config = ApiConfig(
-        kimi_command=(sys.executable, str(script), str(installation)), startup_timeout_seconds=5
+        kimi_command=(interpreter, str(script), str(installation)), startup_timeout_seconds=15
     )
     home = tmp_path / "kimi"
     monkeypatch.setenv("KIMI_CODE_NO_AUTO_UPDATE", "0")
