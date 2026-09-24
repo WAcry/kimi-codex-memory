@@ -14,8 +14,6 @@ class ApiConfig:
     server_url: str = ""
     auto_start: bool = True
     port: int = 59627
-    allowed_versions: tuple[str, ...] = ("2.1.0",)
-    allow_unverified_version: bool = False
     request_timeout_seconds: int = 20
     startup_timeout_seconds: int = 60
     max_response_bytes: int = 32 * 1024 * 1024
@@ -40,7 +38,7 @@ class GenerationConfig:
     retry_delay_seconds: int = 3600
     max_extraction_attempts: int = 3
     consolidation_cooldown_seconds: int = 21600
-    max_input_tokens: int = 100_000
+    max_input_tokens: int = 0
     max_tool_bytes: int = 8192
     max_rollout_summary_bytes: int = 9000
     max_memory_summary_bytes: int = 10_000
@@ -58,14 +56,15 @@ class GenerationConfig:
 
 @dataclass(frozen=True)
 class ModelConfig:
-    protocol: str = "openai"
+    protocol: str = ""
     base_url: str = ""
     model: str = ""
-    api_key_env: str = "KIMI_MEMORY_API_KEY"
+    api_key_env: str = ""
     kimi_provider: str = ""
     timeout_seconds: int = 180
-    max_output_tokens: int = 8192
+    max_output_tokens: int = 0
     json_mode: bool = True
+    context_window: int = 0
     max_response_bytes: int = 2 * 1024 * 1024
 
 
@@ -80,6 +79,12 @@ class WorkerConfig:
 def _section(cls, value: object):
     if not isinstance(value, dict):
         raise ConfigurationError(f"{cls.__name__} must be a table")
+    if cls is ApiConfig:
+        value = {
+            k: v
+            for k, v in value.items()
+            if k not in {"allowed_versions", "allow_unverified_version"}
+        }
     defaults = cls()
     allowed = {field.name for field in fields(cls)}
     unknown = set(value) - allowed
@@ -104,7 +109,7 @@ def _section(cls, value: object):
 def load_worker_config(home: Path) -> WorkerConfig:
     path = Path(os.environ.get("KIMI_MEMORY_WORKER_CONFIG", str(home / "worker.toml")))
     try:
-        raw = tomllib.loads(path.read_text()) if path.exists() else {}
+        raw = tomllib.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except (OSError, ValueError) as exc:
         raise ConfigurationError(
             "Cannot parse worker.toml; the offline reader is unaffected"
@@ -149,8 +154,6 @@ def _validate(config: WorkerConfig) -> None:
     ):
         if getattr(api, name) <= 0:
             raise ConfigurationError(f"{name} must be positive")
-    if not api.allowed_versions and not api.allow_unverified_version:
-        raise ConfigurationError("At least one validated Kimi version is required")
     for name in (
         "max_session_scan",
         "extraction_concurrency",
@@ -158,7 +161,6 @@ def _validate(config: WorkerConfig) -> None:
         "lease_seconds",
         "heartbeat_seconds",
         "max_extraction_attempts",
-        "max_input_tokens",
         "max_tool_bytes",
         "max_tool_read_bytes",
         "max_consolidation_steps",
@@ -179,7 +181,7 @@ def _validate(config: WorkerConfig) -> None:
     if not 256 <= gen.max_rollout_summary_bytes <= 131_072:
         raise ConfigurationError("max_rollout_summary_bytes must be 256..131072")
     for model in (config.extraction, config.consolidation):
-        if model.protocol not in ("openai", "anthropic"):
-            raise ConfigurationError("model protocol must be openai or anthropic")
-        if min(model.timeout_seconds, model.max_output_tokens, model.max_response_bytes) <= 0:
-            raise ConfigurationError("Model timeout/output limits must be positive")
+        if model.protocol not in ("", "openai", "anthropic", "openai_responses"):
+            raise ConfigurationError("model protocol must be openai, anthropic or openai_responses")
+        if min(model.timeout_seconds, model.max_response_bytes) <= 0:
+            raise ConfigurationError("Model timeout/response limits must be positive")

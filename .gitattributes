@@ -1,0 +1,13 @@
+* text=auto
+*.py text eol=lf
+*.ts text eol=lf
+*.mjs text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.lock text eol=lf
+LICENSE text eol=lf
+NOTICE text eol=lf
+**/*LICENSE* text eol=lf
+**/*NOTICE* text eol=lf

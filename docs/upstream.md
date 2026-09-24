@@ -26,3 +26,39 @@ transcript 暴露的完成信息，而不是不存在于该接口里的 raw step
 
 没有 v1、raw_memories.md、MEMORY.md、自动生成 skills、向量数据库或完整历史
 的第二份存储。详细运行边界与验证方式见 `design/`，不可随意改变的决策见 `adr/`。
+
+## Feature flags 与工具表面
+
+此基线 `features.memories` 为 Stable 但默认关闭；`MemoriesConfig.version`
+默认 v1。本项目明确只实现用户选定的 v2，不复制 v1 默认选择。
+`generate_memories` / `use_memories` 分开，`dedicated_tools` 默认 false。
+`MemoriesConfig` 没有 every-prompt / refresh-on-change 开关，因此本项目
+不提供这两种行为。来源：`config/src/types.rs`、`features/src/lib.rs`、
+`ext/memories/src/extension.rs`（相对于 codex-rs）。
+
+默认前台直接利用文件工具，不需要自建另一套检索 MCP。可选专用工具的描述
+位于 `ext/memories/src/tools/{read,search,list,ad_hoc_note}.rs`：read 是
+相对路径、行偏移和行数限制；search 是子串匹配与可选分隔符归一化。其读
+预算为 20,000 tokens，摘要注入预算为 2,500 tokens；这不同于总摘要文件的
+10,000 字节上限。本项目前台使用 Kimi 的原生工具，不伪称其描述与 Codex
+通用工具逐字相同。
+
+Codex phase2 会启动隔离的 coding agent；其普通工具来自 core 的工具体系，
+并不是 memory-v2 专有 read/write 工具。这里保留受限的三个文件工具，是
+外置执行器必要的权限边界：描述必须准确反映实际能力，不能复制一个声称
+可以任意执行 shell 的工具描述，却提供完全不同的实现。任务 prompt 原样
+保存，与这些宿主工具声明分开审计。
+
+## 预算
+
+默认闲置 6 小时、来源 10 天、保留 30 天、每批 2 个提取、最多 256 个合并
+来源等沿用上游。有效窗口从 Kimi 配置获得后按 70% 规划提取，并为输出及
+请求开销留空间；未知窗口回退到用户指定的 256,000，而不是 Codex 的未知
+窗口固定输入回退。不会递归追索日志里的 spill 文件。
+
+## Kimi OAuth 源码复用
+
+`upstream.toml` 的 `kimi_files` 逐个记录原样复制的 OAuth 生命周期、文件
+存储、请求头及许可证。不是从用户机器任意加载一份未确定版本的私有模块。
+`bridge/auth.ts` 是薄适配，`native/auth.mjs` 是固定依赖构建出的运行文件。
+Windows 的原生刷新协调维持上游 best-effort 语义；没有另行承诺严格锁。

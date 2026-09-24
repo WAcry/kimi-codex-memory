@@ -11,3 +11,9 @@ htmlcov/
 .tmp/
 .env
 *.sqlite*
+
+node_modules/
+*.spec
+.host/
+platform-artifacts/
+release-assets/

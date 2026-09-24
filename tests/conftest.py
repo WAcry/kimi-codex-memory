@@ -149,7 +149,7 @@ def seed_published(home, body="Previously published user preference."):
             "sources": [],
         },
     )
-    (home / "current").symlink_to("_generations/" + generation)
+    write_json(home / "current.json", {"format": 1, "generation": generation})
     return directory
 
 
@@ -163,7 +163,11 @@ def serve(callback):
 
         def dispatch(self):
             size = int(self.headers.get("Content-Length", "0"))
-            body = json.loads(self.rfile.read(size)) if size else None
+            raw = self.rfile.read(size) if size else b""
+            if self.headers.get("Content-Type", "").startswith("application/x-www-form-urlencoded"):
+                body = {key: values[0] for key, values in parse_qs(raw.decode()).items()}
+            else:
+                body = json.loads(raw) if size else None
             requests.append((self.command, self.path, body, dict(self.headers)))
             status, payload, *extra = callback(self.command, self.path, body, dict(self.headers))
             self.send_response(status)
@@ -216,6 +220,8 @@ class NativeApi:
                 "dangerous_bypass_auth": False,
                 "started_at": self.started_at,
             }
+        elif path == "/api/v1/config":
+            data = {}
         elif path == "/api/v1/sessions":
             sources = sorted(
                 (t.source for t in self.transcripts.values()),

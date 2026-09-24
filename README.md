@@ -1,276 +1,165 @@
-# Kimi Code Memory
+# Kimi Codex Memory
 
-让 Kimi Code 在新对话中延续过去的项目背景、用户偏好和已经确认的决策。
+让 Kimi Code 在新对话中延续过去的项目背景、用户偏好与已确认的决策。
 
-它会从合适的历史会话生成记忆，在后续对话中提供一份简短摘要，并让 Kimi
-在需要时查阅更具体的记录。记忆来自过去，不替代对当前代码和事实的验证。
+安装后默认使用 **Kimi 当前选中的默认模型与登录方式**：既支持 Kimi 订阅，
+也支持你在 Kimi 中配置的第三方模型。通常不需要填写任何 Memory 配置，
+也不需要另装 Python、Node.js、uv 或另一份 Kimi。
 
-**后台生成暂时不可用时，已经生成的记忆仍可照常注入和查阅。**
-Kimi 升级、模型请求失败、凭据过期或生成配置写错，都不应让已有记忆一起失效。
+支持 Windows、macOS、Linux 的 x64 / ARM64。使用 OpenAI Chat Completions、
+OpenAI Responses 或 Anthropic Messages 接口；暂不支持 Gemini API。
 
-这是独立项目，不是 Moonshot 或 OpenAI 官方产品。当前面向 Linux/macOS，
-需要 Python 3.11+、Git，以及 Kimi Code 2.1.0。其他 Kimi 版本默认暂停自动生成，
-但不关闭已有记忆的读取。
+这是独立开源项目，不是 Moonshot 或 OpenAI 官方产品。后台整理会读取符合
+条件的历史会话，并消耗你所选模型的额度。原始会话不会被插件删除。
 
-## 从这里开始
+## 安装
 
-### 1. 准备配置
+先确认你已经能在 Kimi Code 中正常对话。然后在 Kimi 里输入：
 
-在这个仓库目录中执行：
-
-```bash
-./bin/kimi-memory init
+```text
+/plugins marketplace https://raw.githubusercontent.com/WAcry/kimi-codex-memory/main/marketplace.json
 ```
 
-默认使用 `~/.kimi-code-memory/`。该命令不会安装 Kimi 插件、读取你的对话，
-也不会调用模型。它会创建两份配置：
+选择 **Kimi Codex Memory**，按 Enter 安装，再运行 `/new` 开始新会话。
+也可以直接安装最新的完整插件包：
 
-| 文件 | 控制什么 |
-| --- | --- |
-| `reader.toml` | 已有记忆的注入和读取 |
-| `worker.toml` | 历史读取、后台生成、模型与用量限制 |
+```text
+/plugins install https://github.com/WAcry/kimi-codex-memory/releases/latest/download/kimi-codex-memory.zip
+```
 
-再次运行 `init` 不会覆盖已有配置。
+请使用完整插件包，不要使用 GitHub 的 **Download ZIP** 或直接安装源码仓库
+URL；源码包不包含各平台的运行程序。
 
-### 2. 配置生成使用的模型
+Kimi 必须在 PATH 上，Git 必须可用。Windows 按 Kimi 官方要求安装 Git for
+Windows 即可；不要求管理员权限、创建符号链接权限或开启开发者模式。
 
-编辑 `~/.kimi-code-memory/worker.toml` 中已经存在的 `[extraction]`，
-不要重复添加同名配置段。使用提供 Chat Completions 接口的服务时：
+首次安装时还没有记忆，属于正常状态。默认整理最近十天内更新、已闲置至少
+六小时的历史会话，每批最多两个；不会马上总结你正在进行的会话。
+
+## 日常使用
+
+正常使用 Kimi 即可。新会话会自动收到一份简短记忆摘要，需要细节时，Kimi
+自行查阅相关记录。摘要不会在每轮对话或每次后台更新后重复注入。
+
+记忆来自过去，不是当前事实的保证。代码、配置或项目状态可能已经改变，
+Kimi 仍应在重要的地方进行现场验证。
+
+**额度用完、登录过期、网络失败或 Kimi 接口变化，只会暂停相关后台生成。
+已经发布的记忆仍可照常注入、检索与读取。** 普通对话不会被这些错误阻断，
+也不会反复弹出要求你处理后台问题的提示。
+
+想显式修改记忆，直接告诉 Kimi：
+
+```text
+请记住：这个项目的发布分支是 release。
+请纠正之前关于这个项目的记忆：现在改用 pnpm，不再使用 npm。
+请忘记之前记录的那条临时偏好。
+```
+
+请求先被记录，后台下次成功整理时再应用；排队成功不代表已经完成遗忘。
+
+## 更新
+
+Kimi 的插件管理器负责安装和更新。重新打开本项目的 Marketplace，看到新
+版本后按 Enter 更新，再运行 `/new` 或 `/reload`。不需要重新配置模型。
+
+```text
+/plugins marketplace https://raw.githubusercontent.com/WAcry/kimi-codex-memory/main/marketplace.json
+```
+
+插件**不会自动升级、降级或重装 Kimi Code**。Kimi 从 2.1.0 升到 2.1.3、
+2.1.7 等版本时，不会仅因版本号变化而停工；仍会尝试当前接口。只有实际读取
+失败或结构不兼容时才暂停相关生成，升级插件后可继续处理。
+
+目前使用原生的用户可控更新，不在会话 hook 中偷偷下载和替换代码。
+更新插件保留本地记忆与个人配置。
+
+## 可选配置
+
+**没有配置文件也可以工作。** 默认数据目录是 `~/.kimi-codex-memory/`，
+Windows 对应你的用户目录。通过 `KIMI_MEMORY_HOME` 可以显式更改位置。
+
+两份可选文件分别控制自动注入和后台生成，只填写需要覆盖的值，不必复制
+全部默认值。修改后在下次相应操作时生效。
+
+### 使用另一款已在 Kimi 配置好的模型
+
+在数据目录新建或编辑 `worker.toml`：
 
 ```toml
 [extraction]
-protocol = "openai"
-base_url = "https://YOUR_PROVIDER/v1"
-model = "YOUR_MODEL_ID"
-api_key_env = "KIMI_MEMORY_API_KEY"
+model = "your-kimi-model-alias"
 ```
 
-这里的 `openai` 表示接口格式，不要求使用 OpenAI 的模型。
-`base_url` 填接口根路径，不要填到 `/chat/completions`。
-
-在**启动 Kimi 的同一个终端环境**中设置凭据：
-
-```bash
-export KIMI_MEMORY_API_KEY='YOUR_API_KEY'
-```
-
-默认用这个模型同时生成会话摘要和整理总摘要；整理所用模型必须支持工具调用。
-生成会消耗你所选服务的额度。不要把真实密钥提交进仓库。
-
-已有合适的 Kimi provider 配置时，也可以复用它：
-
-```toml
-[extraction]
-kimi_provider = "YOUR_PROVIDER_NAME"
-api_key_env = ""
-protocol = "openai"
-base_url = "https://YOUR_PROVIDER/v1"
-model = "YOUR_MODEL_ID"
-```
-
-`YOUR_PROVIDER_NAME` 是 Kimi 配置中的 provider 名称，不是模型别名。支持该 provider
-配置的 API key、环境变量凭据，以及尚未过期的文件型 OAuth 凭据。当前不支持 keyring
-或自行刷新 OAuth；凭据过期后，通过 Kimi 刷新，再重试生成。
-
-使用 Anthropic Messages 接口时，将 `protocol` 改为 `anthropic`，并填对应服务的
-`base_url` 与模型标识。
-
-### 3. 检查配置
-
-```bash
-./bin/kimi-memory doctor
-```
-
-默认只做本地检查，不调用模型。检查与 Kimi 的连接时：
-
-```bash
-./bin/kimi-memory doctor --probe
-```
-
-这可能短暂启动一个仅本机可访问的 Kimi 辅助服务，但仍不会调用生成模型。
-如果提示找不到 Kimi，编辑 `worker.toml` 中的 `api.kimi_command`，填入正确的绝对路径：
-
-```toml
-[api]
-kimi_command = ["/absolute/path/to/kimi"]
-```
-
-### 4. 安装到 Kimi
-
-```bash
-./bin/kimi-memory plugin
-```
-
-将输出里的 `install_command` 粘贴到 Kimi 中执行，然后开启一个新会话。
-生成的插件会固定使用本次命令的 Python 环境；之后不要删除或移动这份仓库／Python 环境。
-
-也支持标准 Python 包安装：`python3 -m pip install .`。安装后可直接使用
-`kimi-memory`，而不必输入 `./bin/kimi-memory`。
-
-### 5. 查看是否开始工作
-
-```bash
-./bin/kimi-memory status
-```
-
-首次安装时还没有记忆，这是正常的。默认只处理最近十天内更新、已经闲置至少六小时
-的历史会话，每次最多处理两个，不总结当前正在使用的会话。新会话活动会唤醒后台处理。
-
-需要主动检查一次时：
-
-```bash
-./bin/kimi-memory worker --once
-```
-
-这个命令会按配置使用模型，仍遵守闲置门槛、冷却时间和额度限制。
-
-## 常用配方
-
-### 只暂停生成，不停用已有记忆
-
-在 `worker.toml` 中设置：
-
-```toml
-[generation]
-enabled = false
-```
-
-已有记忆仍会注入，Kimi 仍能按需查阅。恢复为 `true` 后，在新会话中继续使用，
-或手动运行 `worker --once`。
-
-### 关闭自动记忆注入
-
-在独立的 `reader.toml` 中设置：
-
-```toml
-enabled = false
-```
-
-这不会删除或隐藏记忆文件，也不会自动暂停生成；需要暂停两项自动行为时，
-同时修改两份配置。手动读取文件仍然可用。要同时移除 Kimi 的按需查阅指引，
-在 Kimi 中移除本插件；已经进入旧会话的上下文不会因此被自动撤回。
-
-### 控制成本与处理速度
-
-下面的值是示例；直接修改已有字段：
-
-```toml
-[generation]
-max_extractions = 1
-extraction_concurrency = 1
-max_daily_model_calls = 20
-max_run_model_calls = 10
-min_idle_hours = 6.0
-consolidation_cooldown_seconds = 21600
-```
-
-一次整理可能使用多次模型请求，所以“每天二十次请求”不等于“每天二十个会话”。
-每天额度按 UTC 日期重置；这些限制控制请求数量，不是账单金额保证。
-
-### 为整理使用另一个模型
+默认两个阶段使用同一模型。需要为合并单独指定时：
 
 ```toml
 [consolidation]
-model = "YOUR_CONSOLIDATION_MODEL_ID"
+model = "your-other-kimi-model-alias"
 ```
 
-未填写的字段继承 `[extraction]`。也可以分别覆盖 `protocol`、`base_url`、
-`api_key_env` 等设置。
+这里填写 Kimi 中已有的**模型别名**，无需再填写对应的地址或密钥。
+合并模型需要支持工具调用。用户在 Kimi 中配置的上下文上限优先；没有可用
+的窗口信息时，按 256,000 tokens 回退，并以有效窗口的 70% 规划提取预算。
 
-### 只处理指定项目
+### 暂停生成，但保留已有记忆
+
+`worker.toml`：
 
 ```toml
 [generation]
-include_cwds = ["/home/example/git/*"]
-exclude_cwds = ["/home/example/git/private-*"]
-exclude_session_ids = []
+enabled = false
 ```
 
-使用完整路径和通配符。排除项优先。收紧范围后，之前范围外的记忆会在下一次
-成功整理时退出，不会在编辑配置的瞬间被删除。
+### 关闭自动注入
 
-### 调整记忆规模
+`reader.toml`：
+
+```toml
+enabled = false
+```
+
+这不删除记忆，也不自动暂停生成。需要停用整个插件时，在 Kimi 中执行：
+
+```text
+/plugins disable kimi-codex-memory
+```
+
+### 排除某些项目
+
+`worker.toml`：
 
 ```toml
 [generation]
-retention_days = 30.0
-max_consolidation_sources = 256
-max_memory_summary_bytes = 10000
-max_rollout_summary_bytes = 9000
+exclude_cwds = ["/home/example/private-*", "C:/Users/example/private-*"]
 ```
 
-如增大总摘要，也相应调整 `reader.toml` 的 `max_summary_bytes`，避免注入时被截短。
-记忆保留会考虑实际引用；不是到期立即删除，也不会替你删除原始聊天记录。
+使用完整目录与通配符。Windows 路径也可以写成正斜杠形式。排除项优先；
+已有的范围外记忆会在下一次成功整理时退出，而不是保存配置的瞬间删除。
 
-### 显式记住、纠正或忘记
+## 排查问题
 
-可以直接在 Kimi 对话里提出要求，也可以使用命令：
+`/plugins info kimi-codex-memory` 可以查看安装状态。模型或额度问题先在
+Kimi 中确认：默认模型是否能完成普通对话。修复登录或配置后，后续会话会
+再次唤醒后台，失败任务不会被当成已经成功处理。
 
-```bash
-./bin/kimi-memory note remember '默认先给结论，再给验证步骤。'
-./bin/kimi-memory note correct '项目现在使用新的测试命令，旧命令不再适用。'
-./bin/kimi-memory note forget '不要继续保留那条已经废弃的偏好。'
+数据目录中的 `worker-status.json` 记录最近的后台状态；不包含聊天正文或
+密钥。`paused` 不等于记忆读取被关闭。
+
+若目录中已有旧版开发项目的数据 `~/.kimi-code-memory/`，且没有新数据目录，
+插件会继续使用旧目录，不会默默丢掉已有记忆。旧开发插件仍在启用时，请先
+`/plugins disable kimi-code-memory`，避免同时启用两套注入。
+
+## 卸载
+
+```text
+/plugins remove kimi-codex-memory
 ```
 
-这些请求会排队等待后台整理，不代表已即时修改所有记忆。生成暂停时，请求仍会保留。
+插件移除不会自动清空你的记忆目录。需要彻底删除时，在停止插件后自行删除
+数据目录。已经进入旧会话的上下文也不会因此被自动撤回。
 
-### 只在本地查看注入内容
+## 开发与贡献
 
-```bash
-./bin/kimi-memory render
-rg -n -i '关键词' ~/.kimi-code-memory/memories_v2/rollout_summaries
-```
-
-即使 Kimi 的 Web 服务或生成模型离线，这些操作仍然可用。
-
-### 已经在运行 Kimi Web
-
-默认会优先复用同一数据目录下的合适服务；也可以指定：
-
-```toml
-[api]
-server_url = "http://127.0.0.1:58627"
-auto_start = false
-```
-
-只使用 CLI 时，不需要手动打开浏览器。后台可按需启动本机辅助服务，
-默认从 `59627` 开始寻找可用端口，读取完成后关闭自己启动的实例。
-它不会替你停止已有 Web 服务、轮换 token 或打开远程访问。
-
-### 放到其他目录
-
-```bash
-export KIMI_MEMORY_HOME="$HOME/my-kimi-memory"
-./bin/kimi-memory init
-./bin/kimi-memory plugin
-```
-
-Kimi 本身的数据目录由 `KIMI_CODE_HOME` 决定；不要将两者混淆。不同 Kimi home
-需要分别生成对应安装环境的插件，并使用不同 memory home，避免混合用户或配置。
-
-## 遇到问题时
-
-| 现象 | 处理方式 |
-| --- | --- |
-| Kimi 升级后生成暂停 | 运行 `doctor --probe` 查看版本信息；更新本项目后再恢复。已有记忆仍可使用。 |
-| `incompatible_kimi` | 当前接口或版本尚未验证。不要仅为消除提示就随意放行。 |
-| `configuration_error` | 检查 `worker.toml` 的字段名、类型、模型和凭据来源。读取配置独立，不必删除记忆。 |
-| `incomplete_history` | 历史正在变化，或达到读取上限。结束当前活动后重试；很长的历史可调整读取上限。 |
-| 模型额度不足／请求失败 | 降低批量和额度，或修复模型配置。请求失败不会覆盖上次发布的记忆。 |
-| `pending_citations` | 有新的对话活动，后台先等引用记录同步，再继续整理。 |
-| 初次安装没有摘要 | 确认已有符合闲置条件的历史，且模型配置可用。 |
-| 调整配置却没有立刻整理 | 仍可能处于成功冷却期或失败重试等待期；`status` 查看最近结果。 |
-
-`worker.toml` 提供 `allow_unverified_version` 作为明确接受风险的选项。默认不要开启；
-它不会跳过实际返回内容的检查，也不能让不兼容的接口自动变得兼容。
-
-当前不会复制完整聊天历史或所有图片附件。生成前会做尽力脱敏，但这不能保证清除
-所有秘密；模型会收到所选会话的必要文本。请只配置你信任的模型服务，并排除不应处理的项目。
-
-## 升级与卸载
-
-更新仓库或重新安装 Python 包后，重新执行 `plugin` 并在 Kimi 中重新安装／加载插件。
-已有记忆无需删除。若只是移动仓库，也要重新生成插件，更新它记录的执行路径。
-
-在 Kimi 中执行 `/plugins remove kimi-code-memory` 可停止自动接入。已保存的记忆仍保留
-在本地；确认不再需要后，由你自行备份或删除数据目录。
+开发规则见 [AGENTS.md](AGENTS.md)，产品决策见 [ADR](docs/adr/)，
+架构与验证见 [DESIGN](docs/design/)，上游来源见 [upstream](docs/upstream.md)。

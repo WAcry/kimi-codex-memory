@@ -1,5 +1,1 @@
-# Offline reader configuration. Does not depend on worker.toml or Kimi's API.
-enabled = true
-max_summary_bytes = 10000
-inject_every_prompt = false
-refresh_on_change = false
+# Optional offline reader overrides. Automatic injection is enabled by default.

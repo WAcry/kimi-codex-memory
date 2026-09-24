@@ -10,10 +10,11 @@ from conftest import NativeApi, ScriptModel, serve
 
 from kimi_memory.citations import collect_citations
 from kimi_memory.config import ApiConfig, GenerationConfig, WorkerConfig
-from kimi_memory.errors import CompatibilityError, TransportError
+from kimi_memory.errors import TransportError
 from kimi_memory.evidence import normalize
-from kimi_memory.files import atomic_write, write_json
+from kimi_memory.files import atomic_write, published_root, write_json
 from kimi_memory.kimi import Source
+from kimi_memory.platform import process_options
 from kimi_memory.server import ServerManager, live_instances
 from kimi_memory.worker import run_pass
 
@@ -47,14 +48,15 @@ def test_discovery_validates_registered_identity(tmp_path):
         assert (home / "server/instances/test.json").exists()
 
 
-def test_unknown_server_does_not_trigger_legacy_fallback(tmp_path):
+def test_new_server_uses_the_same_contract_without_legacy_fallback(tmp_path):
     with serve(NativeApi([], version="9.9.9")) as (origin, _):
         manager = ServerManager(ApiConfig(server_url=origin), home=tmp_path / "kimi")
-        with pytest.raises(CompatibilityError):
-            manager.connect()
+        api = manager.connect()
+        assert api.sessions(since=0, limit=10) == []
         assert manager.child is None
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission-bit assertion")
 def test_unsafe_server_token_permissions_are_not_weakened(tmp_path):
     home = tmp_path / "kimi"
     token = home / "server.token"
@@ -80,7 +82,7 @@ def test_helper_startup_failure_is_bounded_and_child_is_reaped(tmp_path):
     assert manager.child is None
 
 
-def test_unverified_installed_version_does_not_start_helper(tmp_path):
+def test_new_installed_version_is_tried_before_contract_failure(tmp_path):
     script = tmp_path / "fake-kimi.py"
     marker = tmp_path / "started"
     atomic_write(
@@ -90,15 +92,15 @@ def test_unverified_installed_version_does_not_start_helper(tmp_path):
     manager = ServerManager(
         ApiConfig(kimi_command=(sys.executable, str(script))), home=tmp_path / "kimi"
     )
-    with pytest.raises(CompatibilityError):
+    with pytest.raises(TransportError):
         manager.connect()
-    assert not marker.exists()
+    assert marker.exists()
 
 
 def test_owner_close_only_reaps_its_actual_child(tmp_path):
     manager = ServerManager(ApiConfig(), home=tmp_path / "kimi")
     options = dict(
-        start_new_session=True,
+        **process_options(),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -256,5 +258,5 @@ def test_native_cold_transcript_and_memory_pipeline(tmp_path, monkeypatch, home)
         )
         result = run_pass(home, config, [], client=api, models=(ScriptModel(), ScriptModel()))
         assert result["state"] == "ready" and result["extractions"] == ["extracted"]
-    assert (home / "memories_v2/memory_summary.md").is_file()
+    assert (published_root(home) / "memory_summary.md").is_file()
     assert live_instances(native_home) == []

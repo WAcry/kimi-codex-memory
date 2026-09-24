@@ -1,67 +1,61 @@
-# DESIGN 04：验证、安全与当前边界
+# DESIGN 04：验证、安全与边界
 
-## 默认开发验证
+## 开发验证
 
 ```bash
 uv sync --locked --group dev --default-index https://pypi.org/simple
-.venv/bin/python -m pytest -q
-.venv/bin/ruff check .
-.venv/bin/ruff format --check .
-uv build
+npm ci --ignore-scripts --registry=https://registry.npmjs.org
+npm run build:auth
+uv run --no-sync python -m pytest -q
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
 ```
 
-默认测试使用独立临时 home、合成会话、内存脚本模型和本机假 HTTP 服务，
-不读取用户会话，不使用真实凭据，不调用付费模型。测试需覆盖读路径的
-禁止导入依赖、损坏生成配置／数据库、未知 API、分页和身份、引用、租约、
-过期、notes、发布中断、只读工具路径边界及真实插件入口。
+测试只使用临时 home、合成记录、本地模型/OAuth HTTP 服务。不得读取真实
+用户历史或凭据，不得调用付费模型。设置 KIMI_MEMORY_NATIVE_KIMI 为已安装
+Kimi 的绝对路径，可启用真实宿主集成测试；这些测试同样使用隔离的 home。
 
-## 原生 Kimi 集成验证
+CI 在 Windows、macOS、Linux 的 x64/ARM64 上执行原生测试和冻结包测试。
+发布包移到含空格及中文的目录后，移除 PATH 上的 Python/Node，验证 hook、
+注入和 frozen worker。模拟服务验证三种模型接口、token 续期、401 恢复、
+429 静默失败；模拟测试不能证明任意实际供应商的计费和模型质量。
 
-```bash
-KIMI_MEMORY_NATIVE_KIMI=/absolute/path/to/kimi \
-  .venv/bin/python -m pytest tests/test_server.py -q
-```
+## 认证
 
-这是明确 opt-in 的本机集成测试。它创建测试专属 Kimi home，移除模型凭据
-环境，关闭遥测；启动真实二进制的原生服务器，验证连接和借用生命周期。
+默认模型来自 Kimi 解析后的 /config 与当前本地配置中的凭据引用。配置值
+不会被写入 Memory 配置。Kimi 的 oauth/kimi-code 等标识由原生语义映射到
+credentials 下的存储名。
 
-历史测试仅在测试目录内创建空 session 并注入合成 wire fixture，然后通过
-真实 cold transcript API 读取问题、答案和 assistant 引用。模型部分仍然
-使用脚本替身。该测试曾发现 registry ID 与 API ID 不一致，不能被 mock-only
-测试替代。
+OAuthManager、FileTokenStorage、身份请求头等上游源码原样保存在 vendor/，
+使用固定版本的构建依赖生成 native/auth.mjs。代码和许可证 hash 记录在
+upstream.toml，CI 重建后核对 bundle。复用原生提前刷新、持久化、401 恢复
+以及并发协调，而非另写一个竞争的 refresh-token 管理器。
 
-真实模型的摘要质量、复杂长会话表现、不同供应商的计费／限流，以及完整
-TUI/Web 的视觉引用呈现，不在这些无成本测试的证明范围内。
+原生 Windows OAuth 的跨进程协调本身是 best-effort；不能声称我们增强成了
+严格的全系统事务。当前原生默认存储是 file，没有单独新增 keyring 或登录
+系统。密钥只通过子进程管道进入当前请求，不保存到 Memory 的状态/日志。
 
-## 凭据
+401 对 subscription 只做一次原生强制刷新与重试；429 和其他额度错误不
+触发交互、登录窗口或无界重试。
 
-支持显式环境变量凭据，或用户明确选中的 Kimi provider 配置。配置文件中的
-内联 key 不复制到本项目配置；文件型 OAuth 只读取尚未过期的 access token。
-不刷新 refresh token，不支持 keyring，不主动变更用户的认证状态。
+## 网络与工具
 
-模型端点默认需要 HTTPS；仅 loopback 测试服务允许明文 HTTP。禁用自动
-重定向和隐式 HTTP 代理，避免认证头和历史被带到意外目的地。这也意味着依赖
-环境 HTTP_PROXY 的网络部署需要显式设计支持，而不能假设已有代理自动生效。
+本地 Kimi API 一律绕过代理，保持认证和 loopback，不跟随重定向。云端模型
+请求支持系统代理但同样拒绝重定向；不打印 HTTP body、完整历史和凭据。
+模型端点需要 HTTPS，loopback 测试/本地 provider 可使用 HTTP。
 
-错误诊断不包含 HTTP body、密钥或完整历史。尽力脱敏覆盖常见密钥、Bearer、
-JWT、私钥块和带凭据的 URL，但不是任意秘密检测器。保存用户自己的 notes
-本来就可能含敏感文字，最终责任仍包括可信模型和项目范围选择。
+合并只接触供应的记忆文件，工具没有任意 shell、网络或原始 session 访问。
+限制越界路径和链接；Git 仅运行在专用的记忆暂存目录，禁用用户 Git hooks、
+外部 diff 与全局配置。合并结果先验证再发布。
 
-## 权限与文件
+脱敏不是任意秘密检测器；用户仍需选择可信的模型服务。自动使用当前默认
+provider 不意味着有权在后台改用其他供应商。
 
-新目录和文件采用私人权限；不自动 chmod 用户已有文件以绕过安全检查。
-合并工具不能读绝对路径、..、越界链接、Git 元数据或未供应的原始日志。
-只写一个候选摘要，宿主程序负责发布。Git 操作只在项目运行数据的临时工作
-区中执行，不重置源代码仓库。
+## 仍不实现
 
-后台 helper 不是安全沙箱中的只读服务器；它是完整 Kimi 服务。因此只绑定
-loopback，保留认证，并仅由客户端选择只读历史请求。无需对外开放端口。
+不支持旧 Kimi 日志协议、Gemini API、独立 keyring、完整媒体理解或引用 UI。
+不自动更新 Kimi，不在 hook 中下载可执行更新，不承诺文件系统与数据库是
+一个物理原子事务；使用发布意图与恢复流程补齐跨存储间隙。
 
-## 有意不实现
-
-- Windows 的文件锁／链接替代；旧 Kimi 协议和自有完整 JSONL reader。
-- 媒体二进制理解、原始聊天的第二份存储、向量检索服务。
-- 原生引用 UI、强制模型百分之百引用、语义级引用证明。
-- 自行刷新 Kimi OAuth、安装／升级 Kimi、无限常驻的服务监督器。
-
-这些边界必须写在对用户的行为说明中；不能把配置失败隐藏成生成成功。
+Windows/macOS 的构建必须在相应 CI 真机环境验证，不能拿 Linux 的通过结果
+当作所有平台已经验证。

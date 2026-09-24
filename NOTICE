@@ -1,7 +1,13 @@
-Kimi Code Memory
+Kimi Codex Memory
 
 This project includes unmodified prompt templates from OpenAI Codex,
 Copyright 2025 OpenAI, licensed under the Apache License, Version 2.0.
 The upstream NOTICE is preserved in src/kimi_memory/prompts/CODEX-NOTICE.
 See docs/upstream.md for pinned source paths, hashes, and deliberate adaptations.
 This is an independent integration, not an official OpenAI or Moonshot product.
+
+The authentication bridge includes unmodified OAuth lifecycle and storage sources
+from Kimi Code, Copyright (c) 2026 Moonshot AI, under the MIT license.
+Original sources/license are in vendor/kimi-oauth; bundled runtime notices are in
+src/kimi_memory/native. Build-time bundling also includes proper-lockfile and its
+MIT/ISC-licensed dependencies; their licenses accompany the bundle.

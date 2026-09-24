@@ -24,9 +24,10 @@ reader 和 hook 渲染不导入 `config`、`store`、`http`、`kimi`、`models` 
 CLI 对各功能使用延迟导入，避免 worker 的语法／依赖错误阻断 `render` 或 `hook`。
 读取配置独立，最近一次有效配置提供本地回退；即使 SQLite 不可读，文件仍可读。
 
-Python 3.11 标准库覆盖 TOML、SQLite、HTTP、子进程、文件和 JSON。当前平台为
-POSIX，使用 flock 和符号链接；Windows 不是已实现的兼容目标。运行无第三方
-Python 依赖，测试工具单独锁定。
+Python 3.11+ 标准库覆盖 TOML、SQLite、HTTP、子进程、文件和 JSON。发布包
+自带 Python 运行环境；终端用户不需要 Python 或 pip。Windows 使用 msvcrt
+锁、进程树回收与原子文件替换，不依赖 POSIX 权限位或符号链接。
+OAuth 的原生 Kimi 源码单独打包，由已经安装的 Kimi 的 Node 运行时执行。
 
 ## 代码职责
 
@@ -37,7 +38,8 @@ Python 依赖，测试工具单独锁定。
 | `server`, `http`, `kimi` | 原生服务管理、认证、界面契约与分页 |
 | `evidence`, `citations` | 证据来源、预算、尽力脱敏、引用解析 |
 | `store` | 摘要元数据、租约、引用收据与发布意图 |
-| `models` | OpenAI-compatible / Anthropic 的有限请求适配 |
+| `models`, `model_config`, `responses`, `oauth` | 默认模型解析、三种协议与原生 OAuth 桥接 |
+| `platform` | Windows/POSIX 锁之外的进程、可执行文件和 npm shim 边界 |
 | `worker` | 引用同步、提取、合并和危险操作门禁 |
 | `workspace` | 文件物化、diff、受限工具与发布恢复 |
 
@@ -54,10 +56,8 @@ Python 依赖，测试工具单独锁定。
   injections/<session-hash>.json
   activity/<session-hash>.json
   queue/<time-random>.json
-  current -> _generations/<generation-id>
+  current.json                   原子切换的 generation 指针
   memories_v2/
-    memory_summary.md -> ../current/memory_summary.md
-    rollout_summaries -> ../current/rollout_summaries
     extensions/ad_hoc/notes/
   _staging/<generation-id>/
   _generations/<generation-id>/
@@ -71,6 +71,8 @@ Python 依赖，测试工具单独锁定。
 
 稳定 notes 目录不随发布指针切换。生成目录保存的仅是摘要与 notes 快照，不是
 完整原始对话。引用收据包含事件指纹、来源 ID 和使用时间，不包含回答正文。
+reader 注入不可变 generation 的路径；近期会话引用的 generation 暂不清理。
+旧版 POSIX current 链接只作为已有数据的迁移入口，不是新安装的要求。
 
 注入状态和扫描状态都不是记忆真实性的依据，只用于减少重复工作。读者每次
 自行读取本地文件，不向 worker 请求摘要。

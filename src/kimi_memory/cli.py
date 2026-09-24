@@ -3,7 +3,6 @@
 import argparse
 import json
 import os
-import shlex
 import shutil
 import sys
 import time
@@ -11,7 +10,7 @@ import uuid
 from pathlib import Path
 
 from . import __version__
-from .files import atomic_write, memory_home, read_json, write_json
+from .files import atomic_write, memory_home, published_root, read_json, write_json
 
 
 def initialize(home: Path) -> dict:
@@ -23,14 +22,7 @@ def initialize(home: Path) -> dict:
         target = home / name
         if target.exists():
             continue
-        text = (defaults / name).read_text()
-        if name == "worker.toml":
-            command = shutil.which("kimi")
-            if command:
-                text = text.replace(
-                    "kimi_command = []",
-                    "kimi_command = " + json.dumps([str(Path(command).absolute())]),
-                )
+        text = (defaults / name).read_text(encoding="utf-8")
         atomic_write(target, text)
     return {
         "home": str(home),
@@ -40,39 +32,21 @@ def initialize(home: Path) -> dict:
 
 
 def build_plugin(home: Path, output: Path) -> dict:
-    package_root = str(Path(__file__).resolve().parent.parent)
-    hook = (
-        "import os, sys\n"
-        f"sys.path.insert(0, {package_root!r})\n"
-        f"os.environ['KIMI_MEMORY_HOME'] = {str(home)!r}\n"
-        "from kimi_memory.hooks import main\n"
-        "raise SystemExit(main())\n"
+    # This development helper copies all Python sources; released plugins bundle a runtime.
+    package = Path(__file__).resolve().parent
+    output.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(
+        package,
+        output / "python/kimi_memory",
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("__pycache__"),
     )
-    from .hooks import WAKE_EVENTS
-
-    manifest = {
-        "name": "kimi-code-memory",
-        "version": __version__,
-        "license": "Apache-2.0",
-        "description": "Local memory with independent reading and background generation",
-        "systemPromptPath": "system.md",
-        "hooks": [
-            {
-                "event": event,
-                "command": shlex.quote(sys.executable) + " " + '"$KIMI_PLUGIN_ROOT/hook.py"',
-                "timeout": 3,
-            }
-            for event in sorted(WAKE_EVENTS | {"UserPromptSubmit", "PostCompact"})
-        ],
-    }
-    system = (Path(__file__).parent / "prompts/reader_system_kimi.md").read_text()
-    system += f"\nThe local memory base is `{home / 'memories_v2'}`. "
-    system += (
-        "If no injected summary is visible, this directory can be read directly when relevant.\n"
-    )
-    atomic_write(output / "hook.py", hook)
-    atomic_write(output / "system.md", system)
-    write_json(output / "kimi.plugin.json", manifest)
+    project = package.parents[1]
+    if not (project / "plugin/launch.mjs").is_file():
+        raise ValueError("Use the release plugin ZIP for installation")
+    shutil.copytree(project / "plugin", output / "plugin", dirs_exist_ok=True)
+    shutil.copy2(project / "kimi.plugin.json", output / "kimi.plugin.json")
+    write_json(output / "development.json", {"python": sys.executable, "home": str(home)})
     return {"plugin": str(output), "install_command": "/plugins install " + str(output)}
 
 
@@ -88,8 +62,8 @@ def local_status(home: Path) -> dict:
         "version": __version__,
         "home": str(home),
         "reading_enabled": reader.enabled,
-        "summary_available": (home / "memories_v2/memory_summary.md").is_file(),
-        "memory_path": str(home / "memories_v2"),
+        "summary_available": (published_root(home) / "memory_summary.md").is_file(),
+        "memory_path": str(published_root(home)),
         "generation": worker,
     }
 
@@ -180,7 +154,9 @@ def run_worker_command(home: Path, *, drain: bool) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="kimi-memory", description="Local memory for Kimi Code")
+    parser = argparse.ArgumentParser(
+        prog="kimi-codex-memory", description="Local memory for Kimi Code"
+    )
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--home", type=Path, help="Memory data directory (or KIMI_MEMORY_HOME)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -212,11 +188,17 @@ def main(argv: list[str] | None = None) -> int:
     note.add_argument("kind", choices=["remember", "forget", "correct"])
     note.add_argument("text", nargs="?", help="Request text; omit to read stdin")
     note.add_argument("--no-wake", action="store_true")
+    sub.add_parser("update", help="Show the native plugin upgrade command; never upgrades Kimi")
     args = parser.parse_args(argv)
     home = args.home.expanduser().resolve() if args.home else memory_home()
     if args.home:
         os.environ["KIMI_MEMORY_HOME"] = str(home)
     try:
+        if args.command == "update":
+            print(
+                "/plugins marketplace https://raw.githubusercontent.com/WAcry/kimi-codex-memory/main/marketplace.json"
+            )
+            return 0
         if args.command == "hook":
             from .hooks import main as hook_main
 

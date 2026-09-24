@@ -41,3 +41,58 @@ sha256 = "9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915"
 path = "LICENSE"
 upstream_path = "LICENSE"
 sha256 = "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc"
+
+[[kimi_files]]
+path = "vendor/kimi-oauth/LICENSE"
+upstream_path = "LICENSE"
+sha256 = "23cc68e17992e0b512ae2e80afc5787d7d8e0fbfbdb4fff54ec0245508fa400e"
+
+[[kimi_files]]
+path = "vendor/kimi-oauth/api-error.ts"
+upstream_path = "packages/oauth/src/api-error.ts"
+sha256 = "6beeac6cbc005afffbc8234dcce835138565234c4c3ccf3d692a3b25de9662f2"
+
+[[kimi_files]]
+path = "vendor/kimi-oauth/constants.ts"
+upstream_path = "packages/oauth/src/constants.ts"
+sha256 = "030d2b874ba94b77a9b068ba502b6706addb7b90279122c8f91f5796d6205444"
+
+[[kimi_files]]
+path = "vendor/kimi-oauth/errors.ts"
+upstream_path = "packages/oauth/src/errors.ts"
+sha256 = "79996ca2d86d66813dd0c37624f7c4688b360d402ddc8a1248046c1826814c84"
+
+[[kimi_files]]
+path = "vendor/kimi-oauth/identity.ts"
+upstream_path = "packages/oauth/src/identity.ts"
+sha256 = "1aa8023e80de63af97a2b8c679bba4124573524d768d94a51edbfd5dc50eee00"
+
+[[kimi_files]]
+path = "vendor/kimi-oauth/oauth-manager.ts"
+upstream_path = "packages/oauth/src/oauth-manager.ts"
+sha256 = "f723d502651ab20399b5e4921181bb81840e6fe6ed10df74bab70d943db3482a"
+
+[[kimi_files]]
+path = "vendor/kimi-oauth/oauth.ts"
+upstream_path = "packages/oauth/src/oauth.ts"
+sha256 = "a2717cc91f4c884b0310220983d798d4b6c9e2fb880b1fd184b8702e0c88e981"
+
+[[kimi_files]]
+path = "vendor/kimi-oauth/storage.ts"
+upstream_path = "packages/oauth/src/storage.ts"
+sha256 = "7881f9f3e7f7eeb334d4bc96ece494d4d7338fc1e10fb22a32752300ff0a350b"
+
+[[kimi_files]]
+path = "vendor/kimi-oauth/token-state.ts"
+upstream_path = "packages/oauth/src/token-state.ts"
+sha256 = "7c5804c6d253451413463749078c365c3fcc230eb59dcb40562545cf0f67ebaf"
+
+[[kimi_files]]
+path = "vendor/kimi-oauth/types.ts"
+upstream_path = "packages/oauth/src/types.ts"
+sha256 = "a49b560c0570b64e58bd6c22dcd58398f37d1b47778f187bc444d86b9d087dc9"
+
+[[kimi_files]]
+path = "vendor/kimi-oauth/utils.ts"
+upstream_path = "packages/oauth/src/utils.ts"
+sha256 = "afedd644a4bd899e0f02a3f656238ea9da0638f73897285de4133a813c7176d6"

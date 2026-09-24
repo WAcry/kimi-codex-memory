@@ -3,8 +3,8 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kimi-code-memory"
-version = "0.1.0"
+name = "kimi-codex-memory"
+version = "0.2.0"
 description = "An external, failure-isolated Codex memory-v2 pipeline for Kimi Code"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ readme = "README.md"
 dependencies = []
 
 [dependency-groups]
-dev = ["pytest>=8.4,<9", "ruff>=0.12,<1"]
+dev = ["pytest>=8.4,<9", "ruff>=0.12,<1", "pyinstaller>=6.16,<7"]
 
 [project.scripts]
 kimi-memory = "kimi_memory.cli:main"
@@ -22,7 +22,7 @@ kimi-memory = "kimi_memory.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-kimi_memory = ["prompts/*", "defaults/*"]
+kimi_memory = ["prompts/*", "defaults/*", "native/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import __version__
 from .citations import CitationUse
 from .errors import ConfigurationError, LeaseLostError, ModelError
 from .files import private_dir
@@ -47,16 +48,35 @@ class Store:
         self.lock = threading.RLock()
         self.db = sqlite3.connect(path, timeout=5, isolation_level=None, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute("PRAGMA synchronous=FULL")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
             self.db.close()
             raise ConfigurationError(
                 "Unsupported memory database version; published files remain readable"
             )
+        if version == 1:
+            backup_path = path.parent / "backups" / f"state-v1-{time.time_ns()}.sqlite"
+            private_dir(backup_path.parent)
+            backup_path.touch(mode=0o600)
+            backup = sqlite3.connect(backup_path)
+            try:
+                self.db.backup(
+                    backup
+                )  # Includes committed WAL state; never copy a live .sqlite file.
+            finally:
+                backup.close()
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.execute("PRAGMA synchronous=FULL")
         self.db.executescript(SCHEMA)
-        self.db.execute("PRAGMA user_version=1")
+        with self.transaction() as db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS runtime_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+            )
+            db.execute(
+                "INSERT OR REPLACE INTO runtime_metadata VALUES ('writer_version', ?)",
+                (__version__,),
+            )
+            db.execute("PRAGMA user_version=2")
 
     def close(self) -> None:
         with self.lock:

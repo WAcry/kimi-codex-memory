@@ -6,7 +6,7 @@ from conftest import ScriptModel, seed_published, valid_summary
 from test_store import save
 
 from kimi_memory.errors import LeaseLostError, ModelError, ResyncRequired, UnsafePathError
-from kimi_memory.files import atomic_write
+from kimi_memory.files import atomic_write, published_root
 from kimi_memory.reader import render
 from kimi_memory.store import Store
 from kimi_memory.worker import phase_two
@@ -33,7 +33,7 @@ def test_successful_publication_is_readable_and_repeated_inputs_skip_models(
     generation = phase_two(store, config, home, model)
     assert current_generation(home).name == generation
     assert "rollout_summaries/" in render(home)
-    assert len(list((home / "memories_v2/rollout_summaries").glob("*.md"))) == 1
+    assert len(list((published_root(home) / "rollout_summaries").glob("*.md"))) == 1
     calls = len(model.calls)
     assert phase_two(store, config, home, model) == "unchanged"
     assert len(model.calls) == calls
@@ -56,7 +56,7 @@ def test_source_deletion_appears_in_diff_and_removes_file_after_success(
 ):
     save(store, source)
     phase_two(store, config, home, ScriptModel())
-    filename = next((home / "memories_v2/rollout_summaries").glob("*.md")).name
+    filename = next((published_root(home) / "rollout_summaries").glob("*.md")).name
     save(store, source, "empty-version", summary="")
     workspace = Workspace(home, [], config.generation)
     try:
@@ -66,7 +66,7 @@ def test_source_deletion_appears_in_diff_and_removes_file_after_success(
     finally:
         workspace.close()
     phase_two(store, config, home, ScriptModel())
-    assert list((home / "memories_v2/rollout_summaries").glob("*.md")) == []
+    assert list((published_root(home) / "rollout_summaries").glob("*.md")) == []
     assert filename not in render(home)
 
 

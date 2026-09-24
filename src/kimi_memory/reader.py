@@ -1,22 +1,35 @@
 """Offline prompt rendering. No database, API, worker, or model imports here."""
 
 import os
+import time
 import tomllib
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .files import atomic_write, digest, memory_home, read_json, utf8_head, write_json
+from .errors import UnsafePathError
+from .files import (
+    atomic_write,
+    digest,
+    memory_home,
+    published_root,
+    read_json,
+    utf8_head,
+    write_json,
+)
 
 
 @dataclass(frozen=True)
 class ReaderConfig:
     enabled: bool = True
     max_summary_bytes: int = 10_000
-    inject_every_prompt: bool = False
-    refresh_on_change: bool = False
 
 
 def _parse_reader(raw: object) -> ReaderConfig:
+    if isinstance(raw, dict):
+        # 0.1 configuration migration: these unsupported behaviors are permanently removed.
+        raw = {
+            k: v for k, v in raw.items() if k not in {"inject_every_prompt", "refresh_on_change"}
+        }
     allowed = asdict(ReaderConfig())
     if not isinstance(raw, dict) or set(raw) - set(allowed):
         raise ValueError("Unknown reader option")
@@ -31,7 +44,7 @@ def _parse_reader(raw: object) -> ReaderConfig:
 def load_reader_config(home: Path) -> ReaderConfig:
     path = Path(os.environ.get("KIMI_MEMORY_READER_CONFIG", str(home / "reader.toml")))
     try:
-        raw = tomllib.loads(path.read_text()) if path.exists() else {}
+        raw = tomllib.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         config = _parse_reader(raw)
         try:
             write_json(home / "reader-last-good.json", asdict(config))
@@ -53,7 +66,10 @@ def render(home: Path | None = None) -> str:
     config = load_reader_config(home)
     if not config.enabled:
         return ""
-    root = home / "memories_v2"
+    try:
+        root = published_root(home)
+    except (OSError, ValueError, UnsafePathError):
+        root = home / "memories_v2"
     summary = ""
     try:
         with (root / "memory_summary.md").open("rb") as handle:
@@ -64,8 +80,14 @@ def render(home: Path | None = None) -> str:
             summary = utf8_head(summary, config.max_summary_bytes - len(marker.encode())) + marker
     except (OSError, ValueError):
         pass
-    template = (Path(__file__).parent / "prompts/read_path_v2.md").read_text()
-    text = template.replace("{{ base_path }}", str(root)).replace("{{ memory_summary }}", summary)
+    template = (Path(__file__).parent / "prompts/read_path_v2.md").read_text(encoding="utf-8")
+    template = template.replace(
+        "{{ base_path }}/extensions/ad_hoc/notes/",
+        (home / "memories_v2/extensions/ad_hoc/notes").as_posix() + "/",
+    )
+    text = template.replace("{{ base_path }}", root.as_posix()).replace(
+        "{{ memory_summary }}", summary
+    )
     text = text.replace("rollout UUIDs", "Kimi source session IDs")
     text = text.replace("019c6e27-e55b-73d1-87d8-4e01f1f75043", "session_example_source_id")
     extra = (
@@ -82,26 +104,34 @@ def render(home: Path | None = None) -> str:
 
 def injection_for(session_id: str, home: Path | None = None) -> str:
     home = home or memory_home()
-    config = load_reader_config(home)
     text = render(home)
     if not text:
         return ""
     state_path = home / "injections" / f"{digest(session_id)}.json"
-    summary_path = home / "memories_v2/memory_summary.md"
+    try:
+        summary_path = published_root(home) / "memory_summary.md"
+    except (OSError, ValueError, UnsafePathError):
+        summary_path = home / "memories_v2/memory_summary.md"
     has_summary = summary_path.is_file()
     fingerprint = digest(text)
     try:
         state = read_json(state_path, 4096)
     except (OSError, ValueError):
         state = {}
-    if isinstance(state, dict) and state.get("injected") and not config.inject_every_prompt:
+    if isinstance(state, dict) and state.get("injected"):
         newly_available = has_summary and not state.get("has_summary")
-        changed = config.refresh_on_change and state.get("fingerprint") != fingerprint
-        if not newly_available and not changed:
+        if not newly_available:
             return ""
     try:
         write_json(
-            state_path, {"injected": True, "has_summary": has_summary, "fingerprint": fingerprint}
+            state_path,
+            {
+                "injected": True,
+                "has_summary": has_summary,
+                "fingerprint": fingerprint,
+                "generation": summary_path.parent.name,
+                "time": time.time(),
+            },
         )
     except OSError:
         pass  # Deliver context even when local bookkeeping is not writable.

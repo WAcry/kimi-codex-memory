@@ -1,87 +1,21 @@
 """Small OpenAI-compatible/Anthropic adapters; never start a user coding session."""
 
 import json
-import os
+import re
 import threading
 import time
-import tomllib
-from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
 
 from .config import ModelConfig
-from .errors import ConfigurationError, ModelError, TransportError
+from .errors import ModelError, TransportError
 from .evidence import estimate_tokens
-from .files import read_json, safe_component
-from .http import JsonHttp, model_origin
+from .http import JsonHttp
+from .model_config import Connection, resolve_connection
+from .oauth import native_auth
+from .responses import responses_body, responses_result
 from .server import kimi_home
 from .store import Store
-
-
-@dataclass(frozen=True)
-class Connection:
-    base_url: str
-    model: str
-    key: str
-    headers: dict
-    oauth: bool = False
-
-
-def resolve_connection(config: ModelConfig, *, home: Path | None = None) -> Connection:
-    provider = {}
-    home = home or kimi_home()
-    key = os.environ.get(config.api_key_env, "") if config.api_key_env else ""
-    oauth = False
-    if config.kimi_provider:
-        try:
-            data = tomllib.loads((home / "config.toml").read_text())
-            provider = data["providers"][config.kimi_provider]
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            raise ConfigurationError(
-                "Configured Kimi provider is not available in config.toml"
-            ) from exc
-        if not isinstance(provider, dict):
-            raise ConfigurationError("Invalid Kimi provider declaration")
-        credentials = [bool(provider.get(name)) for name in ("api_key", "api_key_env", "oauth")]
-        if sum(credentials) > 1:
-            raise ConfigurationError("Kimi provider declares conflicting credential sources")
-        if not key:
-            if provider.get("api_key"):
-                key = provider["api_key"]
-            elif provider.get("api_key_env"):
-                key = os.environ.get(provider["api_key_env"], "")
-            elif provider.get("oauth"):
-                ref = provider["oauth"]
-                if not isinstance(ref, dict) or ref.get("storage") != "file":
-                    raise ConfigurationError(
-                        "Only explicitly selected file-backed Kimi OAuth is supported"
-                    )
-                token_path = home / "credentials" / (safe_component(ref.get("key", "")) + ".json")
-                try:
-                    if token_path.stat().st_mode & 0o077:
-                        raise ConfigurationError("Kimi credential file must be private")
-                    token = read_json(token_path, 65_536)
-                except (OSError, ValueError) as exc:
-                    raise ConfigurationError("Kimi OAuth token unavailable") from exc
-                if not isinstance(token, dict) or not isinstance(
-                    token.get("expires_at"), (int, float)
-                ):
-                    raise ConfigurationError("Invalid Kimi OAuth token shape")
-                if token["expires_at"] <= time.time() + 30:
-                    raise ConfigurationError(
-                        "Kimi OAuth token expired; refresh through Kimi, then retry"
-                    )
-                key = token.get("access_token", "")
-                oauth = True
-    base = config.base_url or provider.get("base_url", "")
-    model = config.model or provider.get("default_model", "")
-    if not base or not model or not isinstance(key, str) or not key:
-        raise ConfigurationError(
-            "Configure a model, base_url, and credential source in worker.toml"
-        )
-    headers = provider.get("custom_headers", {})
-    if not isinstance(headers, dict) or any(not isinstance(v, str) for v in headers.values()):
-        raise ConfigurationError("Invalid provider custom_headers")
-    return Connection(model_origin(base), model, key, headers, oauth)
 
 
 class CallBudget:
@@ -104,23 +38,60 @@ class Model:
         config: ModelConfig,
         *,
         budget: CallBudget | None = None,
-        input_limit: int = 100_000,
+        input_limit: int = 0,
         home: Path | None = None,
+        effective: dict | None = None,
+        kimi_command: tuple[str, ...] = (),
     ):
         self.config, self.budget, self.input_limit, self.home = config, budget, input_limit, home
-        self.http = JsonHttp(timeout=config.timeout_seconds, max_bytes=config.max_response_bytes)
+        self.effective, self.kimi_command = effective, kimi_command
+        self.connection = None
+        self.auth_headers = None
+        self.http = JsonHttp(
+            timeout=config.timeout_seconds, max_bytes=config.max_response_bytes, use_proxy=True
+        )
 
     def ready(self) -> None:
-        resolve_connection(self.config, home=self.home)
+        self.connection = resolve_connection(self.config, home=self.home, effective=self.effective)
+
+    def input_budget(self) -> int:
+        if self.connection is None:
+            self.ready()
+        return self.connection.input_budget(self.input_limit)
+
+    def _connection(self, force=False) -> Connection:
+        if self.connection is None:
+            self.ready()
+        connection = self.connection
+        if connection.oauth:
+            auth = native_auth(
+                self.home or kimi_home(),
+                connection.oauth_ref,
+                force=force,
+                command=self.kimi_command,
+            )
+            return replace(
+                connection,
+                key=auth["access_token"],
+                headers={**auth["headers"], **connection.headers},
+            )
+        if connection.provider_type == "kimi":
+            if self.auth_headers is None:
+                self.auth_headers = native_auth(
+                    self.home or kimi_home(), None, command=self.kimi_command
+                )["headers"]
+            return replace(connection, headers={**self.auth_headers, **connection.headers})
+        return connection
 
     def complete(
         self, messages: list[dict], *, tools: list[dict] | None = None, json_mode: bool = False
     ) -> dict:
-        connection = resolve_connection(self.config, home=self.home)
-        if estimate_tokens(json.dumps(messages, ensure_ascii=False)) > self.input_limit:
+        connection = self._connection()
+        if estimate_tokens(json.dumps(messages, ensure_ascii=False)) > self.input_budget():
             raise ModelError("Model input budget exceeded; no request was sent")
-        if self.config.protocol == "anthropic":
+        if connection.protocol == "anthropic":
             body = self._anthropic_body(messages, tools, connection.model)
+            body["max_tokens"] = connection.max_output
             endpoint = connection.base_url + (
                 "/messages" if connection.base_url.endswith("/v1") else "/v1/messages"
             )
@@ -130,6 +101,10 @@ class Model:
                 else {"x-api-key": connection.key}
             )
             headers = {**connection.headers, **auth, "anthropic-version": "2023-06-01"}
+        elif connection.protocol == "openai_responses":
+            body = responses_body(messages, tools, connection, json_mode and self.config.json_mode)
+            endpoint = connection.base_url + "/responses"
+            headers = {**connection.headers, "Authorization": f"Bearer {connection.key}"}
         else:
             body = {
                 "model": connection.model,
@@ -138,26 +113,34 @@ class Model:
                     for message in messages
                 ],
                 "stream": False,
-                "max_tokens": self.config.max_output_tokens,
+                "max_tokens": connection.max_output,
             }
+            # Mirror Kimi's Chat Completions output-cap encoding for OpenAI reasoning models.
+            if re.match(r"^(?:o\d(?:$|[-.])|gpt-5(?:$|[-.]))", connection.model.lower()):
+                body["max_completion_tokens"] = min(body.pop("max_tokens"), 128 * 1024)
             if tools:
                 body["tools"] = tools
             if json_mode and self.config.json_mode:
                 body["response_format"] = {"type": "json_object"}
             endpoint = connection.base_url + "/chat/completions"
             headers = {**connection.headers, "Authorization": f"Bearer {connection.key}"}
+        if not connection.key:
+            headers.pop("Authorization", None)
+            headers.pop("x-api-key", None)
 
         # Defense in depth: do not send an accidentally quoted live credential as history.
         def scrub(value):
             if isinstance(value, str):
-                return value.replace(connection.key, "[REDACTED]")
+                return value.replace(connection.key, "[REDACTED]") if connection.key else value
             if isinstance(value, list):
                 return [scrub(item) for item in value]
             if isinstance(value, dict):
                 return {key: scrub(item) for key, item in value.items()}
             return value
 
-        body["messages"] = scrub(body["messages"])
+        for field in ("messages", "input", "instructions"):
+            if field in body:
+                body[field] = scrub(body[field])
         if "system" in body:
             body["system"] = scrub(body["system"])
         if self.budget:
@@ -165,9 +148,21 @@ class Model:
         try:
             response = self.http.request(endpoint, headers=headers, body=body)
         except TransportError as exc:
-            raise ModelError(str(exc)) from exc
-        if self.config.protocol == "anthropic":
+            if getattr(exc, "status", None) == 401 and connection.oauth:
+                connection = self._connection(force=True)
+                headers["Authorization"] = f"Bearer {connection.key}"
+                try:
+                    if self.budget:
+                        self.budget.reserve()
+                    response = self.http.request(endpoint, headers=headers, body=body)
+                except TransportError as retry:
+                    raise ModelError(str(retry)) from retry
+            else:
+                raise ModelError(str(exc)) from exc
+        if connection.protocol == "anthropic":
             return self._anthropic_response(response)
+        if connection.protocol == "openai_responses":
+            return responses_result(response)
         try:
             choice = response["choices"][0]
             if choice.get("finish_reason") not in {"stop", "tool_calls"}:

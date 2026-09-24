@@ -10,10 +10,14 @@ non-inferable user decisions in numbered ADRs; architecture and tradeoffs in DES
 documents. Do not turn README into an implementation inventory.
 
 - Reader/hooks must remain usable when worker configuration, SQLite, API, credentials, or model generation fail. Never import worker/model/API modules on the reader hot path.
-- Only memory v2 and the pinned current Kimi transcript contract are supported. Do not add legacy JSONL readers or v1 fallbacks.
+- Only memory v2 and the current Kimi transcript contract are supported. Try new host versions against the actual contract; never require exact version equality. Do not add legacy JSONL readers or v1 fallbacks.
 - Never read or change real user sessions/credentials in tests. Use temporary homes and local fake HTTP servers. Never call paid models in tests.
 - Do not change the sibling Kimi Code or Codex repositories. Vendor original prompt files unchanged; record their source commit and hashes. Adapt at runtime with documented replacements.
 - Keep source history out of durable state. Persist only summaries, metadata, jobs, citation receipts, and bounded operational state.
+- Default to Kimi's effective default model/authentication. Support Chat Completions, Anthropic and Responses, not Gemini. Honor configured context caps; unknown windows fall back to 256,000 tokens.
+- Do not reintroduce inject_every_prompt or refresh_on_change. The reader injects a session snapshot, independent of generation health.
+- Ship self-contained native-plugin artifacts for Windows, macOS and Linux. Python/Node build tools are developer dependencies, not end-user prerequisites. No PyPI publishing.
+- Never update Kimi itself. Plugin upgrades are owned by Kimi's plugin manager. Persist user data outside the installed plugin; preserve old published files during migration/failure.
 - Never treat incomplete/unrecognized history as empty history. Failed citation synchronization prohibits destructive retention/publication.
 - Only manage child servers started by this worker. Preserve user-owned servers and token files; use authenticated loopback HTTP without redirects.
 - Use `uv sync --locked --group dev --default-index https://pypi.org/simple`, then `.venv/bin/python -m pytest`, `.venv/bin/ruff check .`, and `.venv/bin/ruff format --check .` before committing. Use focused conventional commits and no co-author trailers.

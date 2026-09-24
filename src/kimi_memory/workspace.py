@@ -17,6 +17,7 @@ from .files import (
     atomic_write,
     digest,
     private_dir,
+    published_root,
     read_bounded,
     read_json,
     sync_dir,
@@ -43,20 +44,12 @@ def ensure_layout(home: Path) -> None:
         private_dir(path)
     instructions = root / "extensions/ad_hoc/instructions.md"
     if not instructions.exists():
-        atomic_write(instructions, (PROMPTS / "ad_hoc_instructions.md").read_text())
-    for name in ("memory_summary.md", "rollout_summaries"):
-        path = root / name
-        target = "../current/" + name
-        if path.is_symlink():
-            if os.readlink(path) != target:
-                raise UnsafePathError("Published layout link was changed; refusing to overwrite it")
-        elif path.exists():
-            raise UnsafePathError("Refusing to replace an unmanaged memory file or directory")
-        else:
-            path.symlink_to(target)
+        atomic_write(instructions, (PROMPTS / "ad_hoc_instructions.md").read_text(encoding="utf-8"))
 
 
 def current_generation(home: Path) -> Path | None:
+    if (home / "current.json").exists():
+        return published_root(home)
     link = home / "current"
     if not link.is_symlink():
         if link.exists():
@@ -313,7 +306,7 @@ class Workspace:
         file = within(self.path, path)
         if not file.exists():
             return {"missing": True, "path": path}
-        lines = file.read_text().splitlines()
+        lines = file.read_text(encoding="utf-8").splitlines()
         parts = []
         size = 0
         next_line = None
@@ -333,7 +326,7 @@ class Workspace:
         return {"path": path, "text": "".join(parts), "next_line": next_line}
 
     def prompt(self) -> str:
-        text = (PROMPTS / "consolidation_v2.md").read_text()
+        text = (PROMPTS / "consolidation_v2.md").read_text(encoding="utf-8")
         replacements = {
             "{{ phase2_workspace_diff_file }}": DIFF_FILE,
             "{{ memory_root }}": ".",
@@ -380,10 +373,7 @@ class Workspace:
         store.publication_intent(self.generation, owner, manifest, time.time())
 
         def switch():
-            temp = self.home / (".current-" + self.generation)
-            temp.symlink_to("_generations/" + self.generation)
-            os.replace(temp, self.home / "current")
-            sync_dir(self.home)
+            write_json(self.home / "current.json", {"format": 1, "generation": self.generation})
 
         store.publish_fenced(owner, switch)
         store.finalize_publication(self.generation, now=time.time())
@@ -429,6 +419,17 @@ def prune_generations(home: Path, keep: int) -> None:
             continue
     retained = {path for _, path in sorted(candidates, reverse=True)[:keep]}
     retained.add(current)
+    # Keep snapshots held by recent sessions. Their injected paths must remain useful.
+    for receipt in (home / "injections").glob("*.json"):
+        try:
+            data = read_json(receipt, 4096)
+            generation = data.get("generation", "")
+            if data.get("time", 0) > time.time() - 30 * 86400 and re.fullmatch(
+                r"[0-9a-f]{32}", generation
+            ):
+                retained.add(home / "_generations" / generation)
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
     for _, path in candidates:
         if path not in retained:
             shutil.rmtree(path)

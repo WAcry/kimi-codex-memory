@@ -6,7 +6,7 @@ from conftest import NativeApi, ScriptModel, serve
 
 from kimi_memory.config import ModelConfig, load_worker_config
 from kimi_memory.errors import ConfigurationError, ModelError
-from kimi_memory.files import atomic_write, write_json
+from kimi_memory.files import atomic_write, published_root
 from kimi_memory.kimi import KimiClient
 from kimi_memory.models import CallBudget, Model, resolve_connection
 from kimi_memory.store import Store
@@ -22,7 +22,11 @@ def test_openai_request_and_strict_completion_reason():
         return 200, {"choices": [{"finish_reason": "stop", "message": {"content": '{"ok":true}'}}]}
 
     with serve(respond) as (origin, _):
-        model = Model(ModelConfig(base_url=origin + "/v1", model="test-model"))
+        model = Model(
+            ModelConfig(
+                api_key_env="KIMI_MEMORY_API_KEY", base_url=origin + "/v1", model="test-model"
+            )
+        )
         result = model.complete(
             [
                 {
@@ -43,7 +47,11 @@ def test_truncated_or_filtered_model_output_is_not_accepted(finish):
             {"choices": [{"finish_reason": finish, "message": {"content": "partial"}}]},
         )
     ) as (origin, _):
-        model = Model(ModelConfig(base_url=origin + "/v1", model="test-model"))
+        model = Model(
+            ModelConfig(
+                api_key_env="KIMI_MEMORY_API_KEY", base_url=origin + "/v1", model="test-model"
+            )
+        )
         with pytest.raises(ModelError):
             model.complete([{"role": "user", "content": "task"}])
 
@@ -73,7 +81,14 @@ def test_anthropic_tool_turn_preserves_native_blocks():
         return 200, {"stop_reason": "end_turn", "content": [{"type": "text", "text": "Done"}]}
 
     with serve(respond) as (origin, _):
-        model = Model(ModelConfig(protocol="anthropic", base_url=origin, model="test-model"))
+        model = Model(
+            ModelConfig(
+                api_key_env="KIMI_MEMORY_API_KEY",
+                protocol="anthropic",
+                base_url=origin,
+                model="test-model",
+            )
+        )
         messages = [{"role": "system", "content": "rules"}, {"role": "user", "content": "task"}]
         response = model.complete(
             messages,
@@ -99,7 +114,7 @@ def test_kimi_provider_selection_does_not_expose_or_mutate_credentials(tmp_path,
         '[providers.example]\nbase_url = "https://example.test/v1"\ndefault_model = "example-model"\napi_key_env = "MY_TEST_PROVIDER_KEY"\n',
     )
     monkeypatch.setenv("MY_TEST_PROVIDER_KEY", "provider-private-key")
-    config = ModelConfig(kimi_provider="example")
+    config = ModelConfig(kimi_provider="example", model="example-model")
     result = resolve_connection(config, home=kimi)
     assert (result.base_url, result.model, result.key) == (
         "https://example.test/v1",
@@ -109,22 +124,27 @@ def test_kimi_provider_selection_does_not_expose_or_mutate_credentials(tmp_path,
     assert "provider-private-key" not in (kimi / "config.toml").read_text()
 
 
-def test_expired_oauth_pauses_without_refresh_or_rewrite(tmp_path, monkeypatch):
+def test_subscription_config_uses_native_oauth_ref_without_reading_tokens(tmp_path):
     kimi = tmp_path / "kimi"
-    monkeypatch.delenv("KIMI_MEMORY_API_KEY")
     atomic_write(
         kimi / "config.toml",
-        '[providers.example]\nbase_url = "https://example.test/v1"\ndefault_model = "model"\n[providers.example.oauth]\nstorage = "file"\nkey = "example"\n',
+        """
+default_model = "kimi/model"
+[models."kimi/model"]
+provider = "managed:kimi-code"
+model = "wire-model"
+protocol = "openai_responses"
+[providers."managed:kimi-code"]
+type = "kimi"
+[providers."managed:kimi-code".oauth]
+storage = "file"
+key = "oauth/kimi-code"
+""",
     )
-    path = kimi / "credentials/example.json"
-    write_json(
-        path,
-        {"access_token": "private-oauth", "refresh_token": "never-use-refresh", "expires_at": 1},
-    )
-    before = path.read_bytes()
-    with pytest.raises(ConfigurationError, match="expired"):
-        resolve_connection(ModelConfig(kimi_provider="example"), home=kimi)
-    assert path.read_bytes() == before
+    result = resolve_connection(ModelConfig(), home=kimi)
+    assert result.oauth_ref["key"] == "oauth/kimi-code"
+    assert result.model == "wire-model" and result.protocol == "openai_responses"
+    assert not (kimi / "credentials").exists()
 
 
 def test_daily_and_per_run_model_call_limits(home):
@@ -141,7 +161,10 @@ def test_daily_and_per_run_model_call_limits(home):
 
 def test_model_input_budget_prevents_network_request():
     with serve(lambda *_: (200, {})) as (origin, requests):
-        model = Model(ModelConfig(base_url=origin, model="model"), input_limit=1)
+        model = Model(
+            ModelConfig(api_key_env="KIMI_MEMORY_API_KEY", base_url=origin, model="model"),
+            input_limit=1,
+        )
         with pytest.raises(ModelError, match="input budget"):
             model.complete([{"role": "user", "content": "long text"}])
     assert requests == []
@@ -164,14 +187,16 @@ def test_full_pipeline_through_native_and_model_http(home, config, transcript):
         }
 
     with serve(NativeApi([transcript])) as (api_url, _), serve(provider) as (model_url, requests):
-        model_cfg = ModelConfig(base_url=model_url + "/v1", model="integration-model")
+        model_cfg = ModelConfig(
+            api_key_env="KIMI_MEMORY_API_KEY", base_url=model_url + "/v1", model="integration-model"
+        )
         config = replace(config, extraction=model_cfg, consolidation=model_cfg)
         api = KimiClient(api_url, lambda: "test-native-token-never-log", config.api)
         api.handshake()
         result = run_pass(home, config, [], client=api)
     assert result["state"] == "ready"
     assert result["model_calls"] == len(requests) == 6
-    assert (home / "memories_v2/memory_summary.md").is_file()
+    assert (published_root(home) / "memory_summary.md").is_file()
 
 
 def test_partial_consolidation_config_inherits_extraction(home):

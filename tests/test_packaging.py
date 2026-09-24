@@ -17,6 +17,19 @@ def test_upstream_prompts_and_notices_are_byte_identical_to_the_pinned_manifest(
     assert len(manifest["files"]) == 7
     for entry in manifest["files"]:
         assert hashlib.sha256((ROOT / entry["path"]).read_bytes()).hexdigest() == entry["sha256"]
+    for entry in manifest["kimi_files"]:
+        assert hashlib.sha256((ROOT / entry["path"]).read_bytes()).hexdigest() == entry["sha256"]
+
+
+def test_native_distribution_versions_match_and_no_pypi_workflow():
+    plugin = json.loads((ROOT / "kimi.plugin.json").read_text(encoding="utf-8"))
+    catalog = json.loads((ROOT / "marketplace.json").read_text(encoding="utf-8"))
+    package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+    assert (
+        plugin["version"] == catalog["plugins"][0]["version"] == package["version"] == __version__
+    )
+    assert plugin["name"] == catalog["plugins"][0]["id"] == "kimi-codex-memory"
+    assert package["private"] is True
 
 
 def test_runtime_package_has_no_external_dependencies_and_pinned_entry():

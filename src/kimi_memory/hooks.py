@@ -8,7 +8,9 @@ import time
 import uuid
 from pathlib import Path
 
-from .files import digest, memory_home, private_dir, write_json
+from .errors import BusyError
+from .files import digest, file_lock, memory_home, private_dir, read_json, write_json
+from .platform import process_options, worker_command
 from .reader import injection_for, reset_injection
 
 WAKE_EVENTS = {"SessionStart", "TurnStarted", "Stop", "SessionEnd", "Interrupt", "StopFailure"}
@@ -31,18 +33,33 @@ def wake(home: Path) -> None:
     if os.environ.get("KIMI_MEMORY_NO_AUTOSTART") == "1":
         return
     private_dir(home)
+    try:
+        status = read_json(home / "worker-status.json", 32768)
+        if isinstance(status, dict) and status.get("retry_at", 0) > time.time():
+            return
+    except (OSError, ValueError, TypeError):
+        pass
+    # Coalesce launch races without an always-running service or any network on hooks.
+    try:
+        with file_lock(home / "wake.lock"):
+            with file_lock(home / "worker.lock"):
+                last = home / "last-wake"
+                if last.exists() and time.time() - last.stat().st_mtime < 1:
+                    return
+                last.touch()
+    except BusyError:
+        return
     env = dict(os.environ)
     source_root = str(Path(__file__).resolve().parent.parent)
     env["PYTHONPATH"] = source_root + os.pathsep + env.get("PYTHONPATH", "")
     env["KIMI_MEMORY_HOME"] = str(home)
     # stdout/stderr are disconnected: no inherited hook pipe can keep the hook waiting.
     subprocess.Popen(
-        [sys.executable, "-m", "kimi_memory", "worker", "--drain"],
+        worker_command(),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        start_new_session=True,
-        close_fds=True,
+        **process_options(detached=True),
         cwd=home,
         env=env,
     )

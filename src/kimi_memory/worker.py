@@ -10,7 +10,7 @@ from .citations import collect_citations
 from .config import WorkerConfig, load_worker_config
 from .errors import BusyError, MemoryErrorBase, ModelError, ResyncRequired, UnsafePathError
 from .evidence import budget_evidence, normalize, redact
-from .files import file_lock, memory_home, read_json, write_json
+from .files import file_lock, memory_home, read_json, utf8_head, write_json
 from .kimi import KimiClient, Transcript
 from .models import CallBudget, Model
 from .server import ServerManager
@@ -28,10 +28,20 @@ from .workspace import (
 
 def allowed(source_id: str, cwd: str, config: WorkerConfig) -> bool:
     gen = config.generation
+
+    # Kimi emits native paths; accept the portable forward-slash spelling in overrides.
+    def matches(pattern: str) -> bool:
+        import os
+
+        value, pattern = cwd.replace("\\", "/"), pattern.replace("\\", "/")
+        if os.name == "nt":
+            value, pattern = value.casefold(), pattern.casefold()
+        return fnmatch.fnmatchcase(value, pattern)
+
     return (
         source_id not in gen.exclude_session_ids
-        and not any(fnmatch.fnmatchcase(cwd, p) for p in gen.exclude_cwds)
-        and (not gen.include_cwds or any(fnmatch.fnmatchcase(cwd, p) for p in gen.include_cwds))
+        and not any(matches(p) for p in gen.exclude_cwds)
+        and (not gen.include_cwds or any(matches(p) for p in gen.include_cwds))
     )
 
 
@@ -50,6 +60,12 @@ def collect_inputs(
     gen = config.generation
     sources = client.sessions(since=now - gen.retention_days * 86400, limit=gen.max_session_scan)
     forced = {e["session_id"] for e in events if isinstance(e.get("session_id"), str)}
+    current_ids = {
+        e["session_id"]
+        for e in events
+        if e.get("event") in {"SessionStart", "TurnStarted"}
+        and e.get("time", now) >= now - max(3600, gen.min_idle_hours * 3600)
+    }
     known = {source.id for source in sources}
     for source_id in sorted(forced - known):
         sources.append(client.source(source_id))
@@ -57,7 +73,9 @@ def collect_inputs(
     for path in (home / "activity").glob("*.json"):
         try:
             data = read_json(path, 4096)
-            if data.get("active") and data.get("time", 0) > now - gen.source_max_age_days * 86400:
+            if data.get("active") and data.get("time", 0) > now - max(
+                3600, gen.min_idle_hours * 3600
+            ):
                 active.add(data["session_id"])
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
             continue
@@ -72,7 +90,7 @@ def collect_inputs(
             not source.busy
             and not source.archived
             and source.id not in active
-            and source.id not in forced
+            and source.id not in current_ids
             and gen.min_idle_hours * 3600 <= age <= gen.source_max_age_days * 86400
             and len(candidates) < gen.max_extractions
             and store.extraction_due(source, now)
@@ -108,14 +126,19 @@ def extract_one(
     key = "extract:" + transcript.source.id
     try:
         with keep_lease(store, key, owner, interval=gen.heartbeat_seconds, lease=gen.lease_seconds):
-            evidence = normalize(transcript, memory_root=str(home / "memories_v2"))
+            evidence = normalize(transcript, memory_root=str(home))
+            input_limit = (
+                model.input_budget()
+                if hasattr(model, "input_budget")
+                else (gen.max_input_tokens or 179_200)
+            )
             contents = budget_evidence(
                 evidence,
-                max_tokens=max(256, gen.max_input_tokens - 4096),
+                max_tokens=max(256, input_limit - 4096),
                 max_tool_bytes=gen.max_tool_bytes,
             )
-            system = (PROMPTS / "stage_one_system_v2.md").read_text()
-            template = (PROMPTS / "stage_one_input_v2.md").read_text()
+            system = (PROMPTS / "stage_one_system_v2.md").read_text(encoding="utf-8")
+            template = (PROMPTS / "stage_one_input_v2.md").read_text(encoding="utf-8")
             replacements = {
                 "{{ rollout_path }}": "kimi-session:" + transcript.source.id,
                 "{{ rollout_cwd }}": transcript.source.cwd,
@@ -150,8 +173,7 @@ def extract_one(
                 redact(output["rollout_summary"].strip()),
                 output["rollout_slug"].strip(),
             )
-            if len(summary.encode()) > gen.max_rollout_summary_bytes:
-                raise ModelError("Extracted summary exceeds its byte limit")
+            summary = utf8_head(summary, gen.max_rollout_summary_bytes)
             if len(slug.encode()) > 256:
                 raise ModelError("Extracted slug exceeds its byte limit")
             if not summary and slug:
@@ -188,7 +210,9 @@ def consolidate_agent(workspace: Workspace, model) -> None:
             if not path.is_file():
                 raise ModelError("Consolidator did not produce memory_summary.md")
             validate_summary(
-                path.read_text(), workspace.config.max_memory_summary_bytes, workspace.source_files
+                path.read_text(encoding="utf-8"),
+                workspace.config.max_memory_summary_bytes,
+                workspace.source_files,
             )
             return
         if not isinstance(calls, list) or len(calls) > 32:
@@ -293,23 +317,38 @@ def run_pass(
     store = Store(home / "state.sqlite")
     try:
         recover_publication(home, store)
+        effective = None
         if client is None:
             manager = ServerManager(config.api)
             with manager as api:
                 inputs, citations = collect_inputs(api, store, config, home, events, time.time())
                 version = api.server_version
+                if models is None:
+                    effective = api.get("/api/v1/config")
         else:
             inputs, citations = collect_inputs(client, store, config, home, events, time.time())
             version = getattr(client, "server_version", "test")
+            if models is None:
+                effective = client.get("/api/v1/config")
         budget = CallBudget(
             store,
             daily=config.generation.max_daily_model_calls,
             per_run=config.generation.max_run_model_calls,
         )
         extraction, consolidation = models or (
-            Model(config.extraction, budget=budget, input_limit=config.generation.max_input_tokens),
             Model(
-                config.consolidation, budget=budget, input_limit=config.generation.max_input_tokens
+                config.extraction,
+                budget=budget,
+                input_limit=config.generation.max_input_tokens,
+                effective=effective,
+                kimi_command=config.api.kimi_command,
+            ),
+            Model(
+                config.consolidation,
+                budget=budget,
+                input_limit=config.generation.max_input_tokens,
+                effective=effective,
+                kimi_command=config.api.kimi_command,
             ),
         )
         results = []
@@ -361,6 +400,7 @@ def run(home: Path | None = None, *, drain: bool = False) -> dict:
     try:
         with file_lock(home / "worker.lock"):
             for _ in range(4 if drain else 1):
+                config = None
                 files = queue_entries(home)
                 events = []
                 for path in files:
@@ -387,9 +427,14 @@ def run(home: Path | None = None, *, drain: bool = False) -> dict:
                         else "Worker failed; inspect local configuration and rerun doctor",
                     }
                 result["updated_at"] = time.time()
+                if result["state"] == "paused":
+                    result["retry_at"] = time.time() + (
+                        config.generation.retry_delay_seconds if config is not None else 60
+                    )
                 write_json(home / "worker-status.json", result)
-                for path in files:
-                    path.unlink(missing_ok=True)
+                if result["state"] in {"ready", "disabled", "pending_citations"}:
+                    for path in files:
+                        path.unlink(missing_ok=True)
                 if not drain or result["state"] == "paused" or not queue_entries(home):
                     return result
             return result

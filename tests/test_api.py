@@ -66,13 +66,13 @@ def test_history_limits_fail_closed(transcript, limits):
         client(origin, **limits).transcript(data.source)
 
 
-def test_new_version_needs_explicit_acceptance(transcript):
-    with serve(NativeApi([transcript], version="2.2.0")) as (origin, _):
-        with pytest.raises(CompatibilityError):
-            client(origin).handshake()
-        allowed = client(origin, allow_unverified_version=True)
-        allowed.handshake()
-        assert allowed.unverified is True
+@pytest.mark.parametrize("version", ["2.1.3", "2.1.7", "2.2.0", "3.0.0"])
+def test_new_version_tries_the_actual_contract(transcript, version):
+    with serve(NativeApi([transcript], version=version)) as (origin, _):
+        api = client(origin)
+        api.handshake()
+        assert api.transcript(transcript.source).source.id == transcript.source.id
+        assert api.unverified is True
 
 
 def test_server_identity_mismatch_is_rejected(transcript):

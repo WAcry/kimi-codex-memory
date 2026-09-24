@@ -1,7 +1,6 @@
 """Borrow a compatible Kimi server or own one short-lived loopback helper."""
 
 import os
-import signal
 import subprocess
 import time
 from pathlib import Path
@@ -10,6 +9,7 @@ from .config import ApiConfig
 from .errors import CompatibilityError, ConfigurationError, TransportError
 from .files import read_bounded, read_json
 from .kimi import KimiClient
+from .platform import kimi_command, process_alive, process_options, stop_owned
 
 
 def kimi_home() -> Path:
@@ -30,7 +30,8 @@ def live_instances(home: Path) -> list[dict]:
                 continue
             if not isinstance(data.get("server_id"), str):
                 continue
-            os.kill(pid, 0)
+            if not process_alive(pid):
+                continue
             instances.append(data)
         except (OSError, ValueError):
             continue
@@ -48,25 +49,24 @@ class ServerManager:
     def token(self) -> str:
         path = self.home / "server.token"
         try:
-            if path.stat().st_mode & 0o077:
+            if os.name != "nt" and path.stat().st_mode & 0o077:
                 raise TransportError("Kimi server token file permissions must be private")
             return read_bounded(path, 8192).strip()
         except OSError as exc:
             raise TransportError("Kimi server token file is unavailable") from exc
 
     def installed_version(self) -> str | None:
-        if not self.config.kimi_command:
-            return None
         try:
+            command = kimi_command(self.config.kimi_command)
             result = subprocess.run(
-                [*self.config.kimi_command, "--version"],
+                [*command, "--version"],
                 capture_output=True,
                 timeout=10,
                 check=True,
                 text=True,
             )
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise ConfigurationError("Cannot identify the configured Kimi executable") from exc
+        except (OSError, subprocess.SubprocessError):
+            return None
         import re
 
         match = re.search(r"(?<![\w.])\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?", result.stdout[:4096])
@@ -107,8 +107,6 @@ class ServerManager:
         desired = self.installed_version()
         rejected = False
         for item in live_instances(self.home):
-            if desired and item.get("host_version") != desired:
-                continue
             try:
                 self.client = self._connect_instance(item)
                 self.borrowed = True
@@ -121,15 +119,20 @@ class ServerManager:
             if rejected:
                 raise CompatibilityError("No compatible existing Kimi server")
             raise TransportError("No reachable Kimi server and helper auto-start is disabled")
-        if not self.config.kimi_command:
-            raise ConfigurationError("Set api.kimi_command or api.server_url in worker.toml")
-        if desired not in self.config.allowed_versions and not self.config.allow_unverified_version:
-            raise CompatibilityError("Installed Kimi version is unverified; helper was not started")
-        env = {**os.environ, "KIMI_CODE_HOME": str(self.home), "KIMI_MEMORY_INTERNAL": "1"}
+        try:
+            command = kimi_command(self.config.kimi_command)
+        except OSError as exc:
+            raise ConfigurationError("Kimi Code is not available on PATH") from exc
+        env = {
+            **os.environ,
+            "KIMI_CODE_HOME": str(self.home),
+            "KIMI_MEMORY_INTERNAL": "1",
+            "KIMI_CODE_NO_AUTO_UPDATE": "1",
+        }
         try:
             self.child = subprocess.Popen(
                 [
-                    *self.config.kimi_command,
+                    *command,
                     "web",
                     "--host",
                     "127.0.0.1",
@@ -144,8 +147,7 @@ class ServerManager:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                start_new_session=True,
-                close_fds=True,
+                **process_options(),
             )
             deadline = time.monotonic() + self.config.startup_timeout_seconds
             while time.monotonic() < deadline:
@@ -174,13 +176,7 @@ class ServerManager:
         child, self.child = self.child, None
         if child is None or child.poll() is not None:
             return
-        # Only this Popen handle owns this new process group; never stop a borrowed server.
-        child.terminate()
-        try:
-            child.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            os.killpg(child.pid, signal.SIGKILL)
-            child.wait(timeout=5)
+        stop_owned(child)
 
     def __enter__(self):
         return self.connect()

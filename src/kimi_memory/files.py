@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -12,7 +13,12 @@ from .errors import BusyError, UnsafePathError
 
 
 def memory_home() -> Path:
-    return Path(os.environ.get("KIMI_MEMORY_HOME", "~/.kimi-code-memory")).expanduser().resolve()
+    if os.environ.get("KIMI_MEMORY_HOME"):
+        return Path(os.environ["KIMI_MEMORY_HOME"]).expanduser().resolve()
+    home = Path.home() / ".kimi-codex-memory"
+    legacy = Path.home() / ".kimi-code-memory"
+    # Keep existing runtime data during the product rename; never silently copy histories.
+    return legacy.resolve() if not home.exists() and legacy.exists() else home.resolve()
 
 
 def private_dir(path: Path) -> None:
@@ -23,12 +29,20 @@ def atomic_write(path: Path, data: str | bytes, mode: int = 0o600) -> None:
     private_dir(path.parent)
     fd, temp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
-        os.fchmod(fd, mode)
+        if os.name != "nt":
+            os.fchmod(fd, mode)
         with os.fdopen(fd, "wb") as handle:
             handle.write(data.encode("utf-8") if isinstance(data, str) else data)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temp, path)
+        for attempt in range(10):
+            try:
+                os.replace(temp, path)
+                break
+            except PermissionError:
+                if os.name != "nt" or attempt == 9:
+                    raise
+                time.sleep(0.02 * (attempt + 1))
         sync_dir(path.parent)
     finally:
         if os.path.exists(temp):
@@ -36,6 +50,8 @@ def atomic_write(path: Path, data: str | bytes, mode: int = 0o600) -> None:
 
 
 def sync_dir(path: Path) -> None:
+    if os.name == "nt":
+        return  # Windows cannot open directories using POSIX fsync semantics.
     fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
         os.fsync(fd)
@@ -87,16 +103,49 @@ def utf8_head(text: str, max_bytes: int) -> str:
 
 @contextmanager
 def file_lock(path: Path, *, blocking: bool = False):
-    # POSIX is the explicit initial platform target (Linux and macOS).
-    import fcntl
-
     private_dir(path.parent)
     fd = os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
-        except BlockingIOError as exc:
-            raise BusyError("Another process owns this operation") from exc
+        if os.name == "nt":
+            import msvcrt
+
+            if os.fstat(fd).st_size == 0:
+                os.write(fd, b"0")
+            os.lseek(fd, 0, os.SEEK_SET)
+            try:
+                msvcrt.locking(fd, msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise BusyError("Another process owns this operation") from exc
+        else:
+            import fcntl
+
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+            except BlockingIOError as exc:
+                raise BusyError("Another process owns this operation") from exc
         yield
     finally:
         os.close(fd)
+
+
+def published_root(home: Path) -> Path:
+    """Resolve one immutable generation without opening the generation database."""
+    pointer = home / "current.json"
+    if pointer.exists():
+        data = read_json(pointer, 4096)
+        if not isinstance(data, dict) or data.get("format") != 1:
+            raise UnsafePathError("Unrecognized publication pointer")
+        generation = data.get("generation", "")
+        if not isinstance(generation, str) or not re.fullmatch(r"[0-9a-f]{32}", generation):
+            raise UnsafePathError("Invalid published generation")
+        root = home / "_generations" / generation
+        if root.is_symlink() or not root.is_dir():
+            raise UnsafePathError("Published generation missing or replaced")
+        return root
+    legacy = home / "current"
+    if legacy.is_symlink():
+        root = legacy.resolve()
+        if root.parent == (home / "_generations").resolve() and root.is_dir():
+            return root
+        raise UnsafePathError("Invalid legacy publication pointer")
+    return home / "memories_v2"

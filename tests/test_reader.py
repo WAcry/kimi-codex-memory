@@ -153,6 +153,7 @@ def test_generated_plugin_runs_with_spaces_in_paths(home):
     hook = next(item for item in manifest["hooks"] if item["event"] == "UserPromptSubmit")
     result = subprocess.run(
         hook["command"],
+        cwd=output,
         shell=True,
         input=json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "from-plugin"}),
         env={**os.environ, "KIMI_PLUGIN_ROOT": str(output)},
@@ -170,10 +171,11 @@ def test_internal_worker_sessions_do_not_recurse(home, monkeypatch):
     assert handle({"hook_event_name": "TurnStarted", "session_id": "internal"}, home) == {}
 
 
-def test_inject_every_prompt_and_refresh_policies(home):
+def test_no_repeated_injection_even_when_old_unsupported_options_are_true(home):
     directory = seed_published(home)
-    atomic_write(home / "reader.toml", "inject_every_prompt = true\n")
-    assert injection_for("s", home) and injection_for("s", home)
-    atomic_write(home / "reader.toml", "refresh_on_change = true\n")
+    atomic_write(home / "reader.toml", "inject_every_prompt = true\nrefresh_on_change = true\n")
+    assert injection_for("s", home)
+    assert injection_for("s", home) == ""
     atomic_write(directory / "memory_summary.md", valid_summary("Changed preference"))
-    assert "Changed preference" in injection_for("s", home)
+    assert injection_for("s", home) == ""
+    assert "Changed preference" in injection_for("new-session", home)

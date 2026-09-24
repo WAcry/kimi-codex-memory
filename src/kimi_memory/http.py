@@ -52,10 +52,16 @@ def model_origin(value: str) -> str:
 
 
 class JsonHttp:
-    def __init__(self, *, timeout: int = 20, max_bytes: int = 32 * 1024 * 1024):
+    def __init__(
+        self, *, timeout: int = 20, max_bytes: int = 32 * 1024 * 1024, use_proxy: bool = False
+    ):
         self.timeout = timeout
         self.max_bytes = max_bytes
-        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        proxy = urllib.request.ProxyHandler() if use_proxy else urllib.request.ProxyHandler({})
+        self.opener = urllib.request.build_opener(proxy, NoRedirect())
+        self.local_opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}), NoRedirect()
+        )
 
     def request(self, url: str, *, headers: dict | None = None, body: dict | None = None):
         encoded = None if body is None else json.dumps(body, ensure_ascii=False).encode()
@@ -69,7 +75,13 @@ class JsonHttp:
             },
         )
         try:
-            with self.opener.open(request, timeout=self.timeout) as response:
+            host = urlsplit(url).hostname or ""
+            try:
+                local = ipaddress.ip_address(host).is_loopback
+            except ValueError:
+                local = host == "localhost"
+            opener = self.local_opener if local else self.opener
+            with opener.open(request, timeout=self.timeout) as response:
                 raw = response.read(self.max_bytes + 1)
                 if len(raw) > self.max_bytes:
                     raise TransportError("HTTP response exceeds configured byte limit")

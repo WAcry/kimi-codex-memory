@@ -68,10 +68,10 @@ read_file、list_files、write_summary；先读 diff，唯一可写产物是 mem
 1. 完成临时工作区，校验和脱敏，更新内部单提交基线，写 manifest。
 2. 将工作区移入独立 generation 目录。
 3. 在 SQLite 写入待发布意图，包含准确的来源内容版本。
-4. 在短事务中再次核对 owner，只执行原子 current 链接替换。
+4. 在短事务中再次核对 owner，只执行原子 current.json 文件替换。
 5. 更新精确来源快照的 selected 标记、成功状态，并清除发布意图。
 
-如果在第 4 步后中断，下次 worker 以 current 指针与 manifest 核对后补齐
+如果在第 4 步后中断，下次 worker 以 current.json 指针与 manifest 核对后补齐
 数据库；如果指针未切换，放弃未发布意图。不能仅按 source ID 把并发生成的
 新版本错误标为已经合并。
 
@@ -89,4 +89,5 @@ notes 不到期；只有规定的 extensions/<extension>/resources/ 文件依据
 时间执行到期移除。成功发布后才删除未被并发修改的过期 resource。
 
 daily/run model-call budget 在发请求前预留；网络失败仍消耗一次预算，不是
-货币成本计量。默认不自动再发大量重试请求。
+货币成本计量。失败的队列通知不被确认删除；静默退避后在下一次唤醒重试。
+手工 worker 命令可以直接重试。唤醒合并避免每个 hook 都启动一个竞争进程。
