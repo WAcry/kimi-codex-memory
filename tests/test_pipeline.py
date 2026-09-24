@@ -189,3 +189,13 @@ def test_successful_empty_extraction_removes_old_source_not_reading(home, config
         assert extract_one(transcript, store, config, ScriptModel(), home) == "skipped"
     finally:
         store.close()
+
+
+def test_queued_event_for_deleted_session_does_not_stall_batch(home, config, transcript):
+    ghost = {"event": "SessionEnd", "session_id": "session_deleted", "time": time.time()}
+    with serve(NativeApi([transcript])) as (origin, _):
+        api = KimiClient(origin, lambda: "test-native-token-never-log", config.api)
+        api.handshake()
+        result = run_pass(home, config, [ghost], client=api, models=(ScriptModel(), ScriptModel()))
+    assert result["state"] == "ready"
+    assert result["summaries"] == 1

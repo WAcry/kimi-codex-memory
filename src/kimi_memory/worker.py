@@ -8,7 +8,14 @@ from pathlib import Path
 
 from .citations import collect_citations
 from .config import WorkerConfig, load_worker_config
-from .errors import BusyError, MemoryErrorBase, ModelError, ResyncRequired, UnsafePathError
+from .errors import (
+    BusyError,
+    MemoryErrorBase,
+    ModelError,
+    ResyncRequired,
+    TransportError,
+    UnsafePathError,
+)
 from .evidence import budget_evidence, normalize, redact
 from .files import file_lock, memory_home, read_json, utf8_middle, write_json
 from .kimi import KimiClient, Transcript
@@ -68,7 +75,12 @@ def collect_inputs(
     }
     known = {source.id for source in sources}
     for source_id in sorted(forced - known):
-        sources.append(client.source(source_id))
+        try:
+            sources.append(client.source(source_id))
+        except TransportError:
+            # A queued event can outlive its session; a deleted source has no
+            # transcript left to read, so skip it instead of stalling the batch.
+            continue
     active = set()
     for path in (home / "activity").glob("*.json"):
         try:
