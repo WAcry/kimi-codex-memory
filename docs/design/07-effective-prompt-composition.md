@@ -25,7 +25,8 @@ Kimi 的四条独立链路（下面路径相对 packages/agent-core-v2/src）：
 启用 Memory 插件（无静态 systemPrompt，也没有 Skill 内容注入）
   SessionStart ───→ 后台通知，不输出 prompt
   UserPromptSubmit ───→ 离线检查本上下文的 receipt
-      已检查 / reader 关闭 / 没有摘要 ───→ stdout 为空
+      已检查 / reader 关闭 ───→ stdout 为空
+      首次无可用摘要 ───→ 仅显式 notes 写入指引（ADR 0009）
       首次有摘要 ───→ 一份完整 read_path_v2 + 路径 + 摘要
           Kimi 包成 UserPromptSubmit 的 hook_result
           作为用户角色的 hook_result 来源消息加入模型上下文
@@ -35,6 +36,26 @@ Kimi 的四条独立链路（下面路径相对 packages/agent-core-v2/src）：
 没有去检测或猜测静态系统模板是否被加载，不依赖 API 才能渲染。Kimi
 自己的系统规则及其他插件的贡献保持不变。这里不是宣称 Kimi 的 user
 hook 与 Codex developer-policy 是相同优先级；后者仍是宿主差异。
+
+## 实际模型角色
+
+插件系统文本会并入 profile.systemPrompt，而 hook 的成功输出经
+agentExternalHooksService.ts:370–377 作为 role=user 加入历史。标签
+hook_result 是来源/文本包装，不会把消息提升为 system 或变成 tool 结果。
+
+以下路径相对 packages/agent-core-v2/src/human/llm/requester/bases：
+
+| 协议 | 插件 System Prompt 的位置 | hook 的位置 |
+| --- | --- | --- |
+| Chat Completions | openai/requester.ts:121–129：messages 中的 role=system | messages 中的 role=user |
+| OpenAI Responses | openai-responses/format.ts:411–423：顶层 instructions | input 中 role=user 的 message，不是 function_call_output |
+| Anthropic Messages | anthropic/format.ts:240–248：顶层 system 文本块 | messages 中的 role=user |
+
+Responses instructions 在 OpenAI 接口中是 system/developer 指令入口，
+不是另一个平级 user 文本；不同供应商实际遵循程度不由插件保证。这里
+记录 Kimi 的真实编码，并不把三种协议的所有角色抽象成完全相同的层级。
+默认静态层较高，也仍可能被自定义模板省略；不为一个 notes 入口再引入
+静态/动态双份规则和是否已加载的检测。
 
 ## 真正的空操作
 
@@ -77,3 +98,8 @@ worker 配置和 DB 被故意破坏后，模型收到的记忆仍然完整。
 tests/test_prompt_contract.py 检查实际 reader/提取/合并请求、note 路径、
 引用示例与来源 ID 一致，以及原始记忆内容不会被模板后处理误改。测试用
 脚本模型只证明组合和传输正确，不声称真实模型的理解与引用永远正确。
+
+ADR 0009 增加无摘要时的独立短 notes 模板，不改变完整阅读模板。测试
+覆盖三种协议的顶层指令与 user hook 角色、默认和自定义系统模板；已有
+摘要时不叠加短模板，无摘要时没有历史/引用内容。另用本地脚本模型调用
+真实 Kimi Write，验证首次请求也能把 note 落盘，无需 memory_summary。

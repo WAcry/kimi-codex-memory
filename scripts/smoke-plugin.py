@@ -96,6 +96,16 @@ def main():
         assert (binary.parent / "licenses/CPython-LICENSE.txt").is_file()
         assert (binary.parent / "licenses/PyInstaller-COPYING.txt").is_file()
         run([str(binary), "init"])
+        hook = next(h["command"] for h in manifest["hooks"] if h["event"] == "UserPromptSubmit")
+        initial_payload = json.dumps(
+            {"hook_event_name": "UserPromptSubmit", "session_id": "first-context"}
+        )
+        note_guidance = json.loads(run(hook, input=initial_payload, shell=True))["message"]
+        assert "## Memory notes" in note_guidance
+        assert (home / "memories_v2/extensions/ad_hoc/notes").as_posix() in note_guidance
+        assert "MEMORY_SUMMARY" not in note_guidance and "Memory citations:" not in note_guidance
+        assert run(hook, input=initial_payload, shell=True) == ""
+        assert not (home / "current.json").exists()
         generation = "a" * 32
         published = home / "_generations" / generation
         (published / "rollout_summaries").mkdir(parents=True)
@@ -108,8 +118,7 @@ def main():
         )
         (home / "worker.toml").write_text("intentionally broken [", encoding="utf-8")
         (home / "state.sqlite").write_text("not a database", encoding="utf-8")
-        manifest = json.loads((root / "kimi.plugin.json").read_text(encoding="utf-8"))
-        hook = next(h["command"] for h in manifest["hooks"] if h["event"] == "UserPromptSubmit")
+        assert run(hook, input=initial_payload, shell=True) == ""
         payload = json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "smoke-session"})
         first = json.loads(run(hook, input=payload, shell=True))
         assert "Synthetic preserved memory" in first["message"]
@@ -145,7 +154,7 @@ def main():
             time.sleep(0.1)
         assert json.loads(status.read_text(encoding="utf-8"))["state"] == "disabled"
         print(
-            "PASS native plugin installation, relocated runtime, offline injection, snapshot, failure isolation, frozen worker"
+            "PASS native plugin installation, relocated runtime, first-note guidance, offline injection, snapshot, failure isolation, frozen worker"
         )
 
 

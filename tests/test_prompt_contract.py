@@ -5,6 +5,7 @@ import re
 from conftest import ScriptModel, seed_published, valid_summary
 
 from kimi_memory.citations import citation_ids
+from kimi_memory.files import atomic_write
 from kimi_memory.reader import render
 from kimi_memory.store import Store
 from kimi_memory.worker import extract_one
@@ -53,6 +54,25 @@ def test_notes_point_to_live_notes_not_the_immutable_generation(home):
     assert (home / "memories_v2/extensions/ad_hoc/notes").as_posix() in actual
     assert (root / "extensions/ad_hoc/notes").as_posix() not in actual
     assert "Saving a note\ndoes not mean the generated memory has already changed" in actual
+
+
+def test_no_summary_prompt_contains_only_explicit_note_guidance(home):
+    atomic_write(home / "worker.toml", "[generation]\nenabled = false\n")
+    actual = render(home)
+    template = (PROMPTS / "notes_only.md").read_text(encoding="utf-8")
+    assert actual == template.replace(
+        "{{ notes_path }}", (home / "memories_v2/extensions/ad_hoc/notes").as_posix()
+    )
+    assert "Only when the user explicitly asks" in actual
+    assert "Do not edit generated" in actual and "Saving a note" in actual
+    for absent in ("MEMORY_SUMMARY", "rollout_summaries", "Grep", "citation", "session_id"):
+        assert absent not in actual
+    assert not (home / "current.json").exists()
+    assert not (home / "state.sqlite").exists()
+    seed_published(home)
+    full = render(home)
+    assert "## Memory notes" not in full
+    assert full.count("append a small Markdown note") == 1
 
 
 def test_actual_extraction_request_uses_real_session_metadata(home, config, transcript):

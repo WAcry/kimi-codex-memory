@@ -45,7 +45,8 @@
 ## hooks 与注入
 
 当前 SessionStart hook 的 stdout 不进入模型。实现于 UserPromptSubmit
-首次检查并注入完整规则与可用摘要；即使没有摘要，也完成本上下文的检查。
+首次检查有摘要就注入完整规则与摘要，没有可用摘要就仅注入 notes 写入
+指引；两种结果都完成本上下文的检查，不在后续摘要生成时再次注入。
 普通 SessionStart/resume 不重置标记，以保留已记录的上下文。阅读规则与
 摘要是一个完整的 hook 消息，不再依赖插件 System Prompt。
 

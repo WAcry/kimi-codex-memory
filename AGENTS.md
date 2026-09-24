@@ -18,6 +18,7 @@ documents. Do not turn README into an implementation inventory.
 - Default to Kimi's effective default model/authentication. Support Chat Completions, Anthropic and Responses, not Gemini. Honor configured context caps; unknown windows fall back to 256,000 tokens.
 - Do not reintroduce inject_every_prompt or refresh_on_change. The reader injects a session snapshot, independent of generation health.
 - Match Codex full-context boundaries: an absent summary still completes the initial check; first publication and ordinary resume do not trigger reinjection. Compaction does. See ADR 0006 for the Kimi timing limitation.
+- At that initial check, an unavailable summary gets only the short explicit-note guidance (ADR 0009); a usable summary gets only the existing full prompt. Do not add static duplicate rules, a new note tool, late-publication reinjection, or a new configuration switch for this fallback.
 - Do not probe Kimi with --version before launching a helper or reject a running helper because the installed product version changed. Reuse healthy connections and release owned helpers after the batch. Set the auto-update opt-out before background Kimi process entry, never in user configuration.
 - Ship self-contained native-plugin artifacts for Windows, macOS and Linux. Python/Node build tools are developer dependencies, not end-user prerequisites. No PyPI publishing.
 - Never update Kimi itself. Plugin upgrades are owned by Kimi's plugin manager. Persist user data outside the installed plugin; preserve old published files during migration/failure.

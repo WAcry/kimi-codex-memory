@@ -68,7 +68,7 @@ def test_resume_after_compaction_preserves_pending_context_rebuild(home):
 
 
 def test_first_publication_does_not_inject_into_an_existing_context(home):
-    assert injection_for("s1", home) == ""
+    assert "## Memory notes" in injection_for("s1", home)
     seed_published(home)
     assert injection_for("s1", home) == ""
     handle(
@@ -86,8 +86,8 @@ def test_first_publication_does_not_inject_into_an_existing_context(home):
 def test_empty_summary_is_checked_once_without_an_empty_memory_prompt(home):
     directory = seed_published(home)
     atomic_write(directory / "memory_summary.md", " \n\t")
-    assert render(home) == ""
-    assert injection_for("s1", home) == ""
+    assert "## Memory notes" in render(home)
+    assert "## Memory notes" in injection_for("s1", home)
     atomic_write(directory / "memory_summary.md", valid_summary("Generated later"))
     assert injection_for("s1", home) == ""
 
@@ -274,12 +274,58 @@ def test_missing_publication_is_explicit_in_offline_status(home):
     status = local_status(home)
     assert status["summary_available"] is False
     assert status["memory_path"] is None
-    assert render(home) == ""
+    assert "## Memory notes" in render(home)
 
 
 @pytest.mark.parametrize("pointer", ["broken [", '{"format": 99}', '{"format": true}'])
 def test_unrecognized_publication_is_reported_unavailable_without_rewriting_it(home, pointer):
     atomic_write(home / "current.json", pointer)
-    assert render(home) == ""
+    text = render(home)
+    assert "## Memory notes" in text and "MEMORY_SUMMARY" not in text
     assert local_status(home)["summary_available"] is False
     assert (home / "current.json").read_text() == pointer
+
+
+def test_notes_only_is_disabled_by_the_reader_setting(home):
+    atomic_write(home / "reader.toml", "enabled = false\n")
+    assert render(home) == ""
+    assert handle({"hook_event_name": "UserPromptSubmit", "session_id": "s"}, home) == {}
+
+
+def test_notes_only_remains_usable_with_generation_failures(home):
+    atomic_write(home / "worker.toml", "invalid [")
+    atomic_write(home / "state.sqlite", "not a database")
+    code = """
+import sys
+for name in ('worker', 'store', 'config', 'kimi', 'models', 'http', 'server', 'workspace'):
+    sys.modules['kimi_memory.' + name] = None
+from kimi_memory.cli import main
+raise SystemExit(main(['render']))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=5,
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).parents[1] / "src")},
+    )
+    assert result.returncode == 0
+    assert "## Memory notes" in result.stdout
+    assert "Memory citations:" not in result.stdout
+
+
+def test_notes_only_is_once_per_context_and_records_no_publication(home):
+    from kimi_memory.files import digest, read_json
+
+    payload = {"hook_event_name": "UserPromptSubmit", "session_id": "first-context"}
+    handle({**payload, "hook_event_name": "SessionStart"}, home, spawn=False)
+    assert "## Memory notes" in handle(payload, home)["message"]
+    assert handle(payload, home) == {}
+    handle({**payload, "hook_event_name": "SessionStart", "source": "resume"}, home, spawn=False)
+    assert handle(payload, home) == {}
+    receipt = read_json(home / "injections" / f"{digest('first-context')}.json")
+    assert receipt["checked"] and receipt["injected"] and receipt["generation"] is None
+    handle({**payload, "hook_event_name": "PostCompact"}, home, spawn=False)
+    assert "## Memory notes" in handle(payload, home)["message"]
+    assert handle(payload, home) == {}

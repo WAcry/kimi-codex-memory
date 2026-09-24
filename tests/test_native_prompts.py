@@ -11,6 +11,7 @@ from socketserver import TCPServer
 
 import pytest
 from conftest import seed_published
+from native_protocol_events import anthropic_events, response_events
 
 from kimi_memory.cli import build_plugin
 from kimi_memory.config import ApiConfig
@@ -23,7 +24,7 @@ pytestmark = pytest.mark.skipif(
 
 
 @contextmanager
-def scripted_model():
+def scripted_model(protocol="openai", *, note_path=None):
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -64,9 +65,47 @@ def scripted_model():
                     "usage": {"prompt_tokens": 200, "completion_tokens": 3, "total_tokens": 203},
                 },
             ]
+            if note_path is not None and len(requests) == 1:
+                assert protocol == "openai"
+                tool = next(
+                    tool["function"]
+                    for tool in body["tools"]
+                    if tool["function"]["name"] == "Write"
+                )
+                assert {"path", "content"} <= tool["parameters"]["properties"].keys()
+                chunks[0]["choices"][0]["delta"] = {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": "call_note_local",
+                            "type": "function",
+                            "function": {
+                                "name": "Write",
+                                "arguments": json.dumps(
+                                    {
+                                        "path": str(note_path),
+                                        "content": "# Explicit synthetic memory request\n\nUse pnpm for this example project.\n",
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                }
+                chunks[1]["choices"][0]["finish_reason"] = "tool_calls"
+            if protocol == "openai_responses":
+                chunks = response_events()
+            elif protocol == "anthropic":
+                chunks = anthropic_events()
             raw = (
-                "".join("data: " + json.dumps(chunk) + "\n\n" for chunk in chunks)
-                + "data: [DONE]\n\n"
+                "".join(
+                    ("event: " + chunk["type"] + "\n" if "type" in chunk else "")
+                    + "data: "
+                    + json.dumps(chunk)
+                    + "\n\n"
+                    for chunk in chunks
+                )
+                + ("data: [DONE]\n\n" if protocol == "openai" else "")
             ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -114,20 +153,20 @@ def isolate_host(tmp_path, monkeypatch):
     return binary
 
 
-def configure_model(native_home, origin):
+def configure_model(native_home, origin, protocol="openai"):
     atomic_write(
         native_home / "config.toml",
         f'''
 telemetry = false
 default_model = "probe/default"
 [providers.probe]
-type = "openai"
+type = "{protocol}"
 base_url = "{origin}/v1"
 api_key = "synthetic-local-only"
 [models."probe/default"]
 provider = "probe"
 model = "prompt-probe"
-protocol = "openai"
+protocol = "{protocol}"
 max_context_size = 256000
 max_output_size = 4096
 capabilities = ["tool_use"]
@@ -160,9 +199,19 @@ def invoke(binary, cwd, prompt, extra=()):
     return result
 
 
+def request_parts(request, protocol):
+    if protocol == "openai_responses":
+        return request.get("instructions", ""), request["input"]
+    if protocol == "anthropic":
+        return text_content({"content": request.get("system", [])}), request["messages"]
+    system = "\n".join(text_content(m) for m in request["messages"] if m["role"] == "system")
+    return system, request["messages"]
+
+
+@pytest.mark.parametrize("protocol", ["openai", "openai_responses", "anthropic"])
 @pytest.mark.parametrize("custom_system", ["default", "standalone", "base_prompt"])
 def test_native_plugin_system_is_automatic_but_custom_templates_can_omit_it(
-    tmp_path, home, monkeypatch, custom_system
+    tmp_path, home, monkeypatch, custom_system, protocol
 ):
     binary = isolate_host(tmp_path, monkeypatch)
     native_home = tmp_path / "kimi"
@@ -187,24 +236,24 @@ def test_native_plugin_system_is_automatic_but_custom_templates_can_omit_it(
         atomic_write(native_home / "SYSTEM.md", text)
     atomic_write(home / "worker.toml", "broken TOML [")
     atomic_write(home / "state.sqlite", "broken SQLite")
-    with scripted_model() as (origin, requests):
-        configure_model(native_home, origin)
+    with scripted_model(protocol) as (origin, requests):
+        configure_model(native_home, origin, protocol)
         install_plugins(binary, native_home, [memory_plugin, probe_plugin])
         invoke(binary, workspace, "NATIVE_PLAIN_USER_REQUEST")
         invoke(binary, workspace, "NATIVE_CONTINUED_REQUEST", extra=("--continue",))
     assert requests
     for request in requests:
-        messages = request["messages"]
+        _, messages = request_parts(request, protocol)
         all_text = "\n".join(text_content(m) for m in messages)
         assert all_text.count("Use the injected MEMORY_SUMMARY") == 1
         assert all_text.count("Memory citations:") == 1
         assert all_text.count("========= MEMORY_SUMMARY BEGINS =========") == 1
         assert "Kimi host adaptation" not in all_text
-    messages = requests[-1]["messages"]
-    system = "\n".join(text_content(m) for m in messages if m["role"] in {"system", "developer"})
+    system, messages = request_parts(requests[-1], protocol)
     assert ("AUTOMATIC_STATIC_PLUGIN_SENTINEL" in system) is (custom_system != "standalone")
     assert ("CUSTOM_SYSTEM_SENTINEL" in system) is (custom_system != "default")
     assert "Use the injected MEMORY_SUMMARY" not in system
+    assert all(m["role"] == "user" for m in messages if "<hook_result" in text_content(m))
     hooks = [
         text_content(m)
         for m in messages
@@ -216,8 +265,9 @@ def test_native_plugin_system_is_automatic_but_custom_templates_can_omit_it(
     assert (home / "memories_v2/extensions/ad_hoc/notes").as_posix() in hooks[0]
 
 
-def test_native_empty_first_context_and_disabled_plugin_do_not_inject_rules(
-    tmp_path, home, monkeypatch
+@pytest.mark.parametrize("protocol", ["openai", "openai_responses", "anthropic"])
+def test_native_first_context_gets_only_note_guidance_and_disabled_plugin_gets_nothing(
+    tmp_path, home, monkeypatch, protocol
 ):
     binary = isolate_host(tmp_path, monkeypatch)
     native_home = tmp_path / "kimi"
@@ -225,8 +275,9 @@ def test_native_empty_first_context_and_disabled_plugin_do_not_inject_rules(
     workspace.mkdir()
     plugin = tmp_path / "memory-plugin"
     build_plugin(home, plugin)
-    with scripted_model() as (origin, requests):
-        configure_model(native_home, origin)
+    atomic_write(native_home / "SYSTEM.md", "Custom system with no plugin sections.")
+    with scripted_model(protocol) as (origin, requests):
+        configure_model(native_home, origin, protocol)
         install_plugins(binary, native_home, [plugin])
         invoke(binary, workspace, "NATIVE_EMPTY_REQUEST")
         seed_published(home, "FIRST_PUBLISHED_MEMORY")
@@ -234,7 +285,14 @@ def test_native_empty_first_context_and_disabled_plugin_do_not_inject_rules(
         for request in requests:
             assert "Memory citations:" not in json.dumps(request)
             assert "FIRST_PUBLISHED_MEMORY" not in json.dumps(request)
-            assert "<hook_result" not in json.dumps(request)
+            assert "MEMORY_SUMMARY" not in json.dumps(request)
+            system, messages = request_parts(request, protocol)
+            notes = [m for m in messages if "## Memory notes" in text_content(m)]
+            assert len(notes) == 1 and notes[0]["role"] == "user"
+            assert "Memory notes" not in system
+            assert (home / "memories_v2/extensions/ad_hoc/notes").as_posix() in text_content(
+                notes[0]
+            )
         owner = ServerManager(ApiConfig(kimi_command=(str(binary),), port=61627), home=native_home)
         with owner as api:
             result = api.http.request(
@@ -247,3 +305,24 @@ def test_native_empty_first_context_and_disabled_plugin_do_not_inject_rules(
         invoke(binary, workspace, "NATIVE_DISABLED_PLUGIN_REQUEST")
         assert requests and "Memory citations:" not in json.dumps(requests)
         assert "<hook_result" not in json.dumps(requests)
+        assert "## Memory notes" not in json.dumps(requests)
+
+
+def test_native_first_remember_request_can_write_a_note_without_summary(
+    tmp_path, home, monkeypatch
+):
+    binary = isolate_host(tmp_path, monkeypatch)
+    native_home = tmp_path / "kimi"
+    plugin = tmp_path / "memory-plugin"
+    build_plugin(home, plugin)
+    note_path = home / "memories_v2/extensions/ad_hoc/notes/explicit-synthetic.md"
+    assert not (home / "current.json").exists()
+    with scripted_model(note_path=note_path) as (origin, requests):
+        configure_model(native_home, origin)
+        install_plugins(binary, native_home, [plugin])
+        invoke(binary, tmp_path, "Please remember to use pnpm for this example project.")
+    assert len(requests) == 2
+    assert "## Memory notes" in json.dumps(requests[0])
+    assert "MEMORY_SUMMARY" not in json.dumps(requests[0])
+    assert "Use pnpm for this example project." in note_path.read_text(encoding="utf-8")
+    assert not (home / "current.json").exists()

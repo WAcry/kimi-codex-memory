@@ -31,7 +31,10 @@ transcript 暴露的完成信息，而不是不存在于该接口里的 raw step
 
 注入只采用当前 Kimi 实际可用的 UserPromptSubmit，提供一份自包含的
 规则与摘要；SessionStart 只唤醒，PostCompact 才重置检查状态。reader
-仍与生成独立，无摘要时保持原版不提供 memory fragment 的行为。
+仍与生成独立。无摘要时不提供完整阅读片段，只提供 ADR 0009 中的简短
+notes 写入指引；这是明确的小型体验调整，不伪称上游默认也注入这段。
+Codex 的专用 add_ad_hoc_note 工具可以独立于摘要暴露（需要启用专用
+工具），其描述的显式请求门槛与只新增 note 语义是短指引的参照。
 
 | 执行模板 | 相对原文的必要修改 |
 | --- | --- |
@@ -40,6 +43,7 @@ transcript 暴露的完成信息，而不是不存在于该接口里的 raw step
 | stage_one_system_v2 | 两处 rollout 文本称谓改为 session，JSON 输出字段不变 |
 | consolidation_v2 | session_id 索引、预算占位符和实际可用的 write_summary 工具；其余格式/筛选要求保留 |
 | ad_hoc_instructions | 无修改 |
+| notes_only | 无完整摘要时使用的自有短模板，沿用明确请求写 note 与后续合并语义，不增加检索/引用规则 |
 
 没有 v1、raw_memories.md、MEMORY.md、自动生成 skills、向量数据库或完整历史
 的第二份存储。详细运行边界与验证方式见 `design/`，不可随意改变的决策见 `adr/`。

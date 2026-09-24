@@ -1,3 +1,11 @@
+# Unreleased
+
+- Before the first usable memory summary, inject only short explicit-note
+  guidance at the normal initial input boundary. Existing summaries still use
+  the unchanged full prompt; no duplicate static instructions or late injection.
+- Verify the actual system/instructions and user-hook roles for Chat
+  Completions, Responses and Anthropic using native Kimi and local test models.
+
 # 1.0.0
 
 First public release of Kimi Codex Memory.

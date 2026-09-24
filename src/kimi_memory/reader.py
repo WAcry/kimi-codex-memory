@@ -56,6 +56,13 @@ def load_reader_config(home: Path) -> ReaderConfig:
         return ReaderConfig()
 
 
+def _notes_only(home: Path) -> str:
+    template = (Path(__file__).parent / "prompts/notes_only.md").read_text(encoding="utf-8")
+    return template.replace(
+        "{{ notes_path }}", (home / "memories_v2/extensions/ad_hoc/notes").as_posix()
+    )
+
+
 def render(home: Path | None = None) -> str:
     home = home or memory_home()
     config = load_reader_config(home)
@@ -64,9 +71,9 @@ def render(home: Path | None = None) -> str:
     try:
         root = published_root(home)
     except (OSError, ValueError, UnsafePathError):
-        return ""
+        return _notes_only(home)
     if root is None:
-        return ""
+        return _notes_only(home)
     summary = ""
     try:
         with (root / "memory_summary.md").open("rb") as handle:
@@ -78,8 +85,8 @@ def render(home: Path | None = None) -> str:
     except (OSError, ValueError):
         pass
     if not summary.strip():
-        # Codex contributes no memory fragment when the initial-context read is empty.
-        return ""
+        # Keep explicit note writing discoverable without inventing history or citations.
+        return _notes_only(home)
     template = (Path(__file__).parent / "prompts/read_path_v2.md").read_text(encoding="utf-8")
     return (
         template.replace("{{ base_path }}", root.as_posix())
