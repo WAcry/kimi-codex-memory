@@ -106,14 +106,20 @@ def load_worker_config(home: Path) -> WorkerConfig:
     try:
         raw = tomllib.loads(path.read_text()) if path.exists() else {}
     except (OSError, ValueError) as exc:
-        raise ConfigurationError("Cannot parse worker.toml; the offline reader is unaffected") from exc
+        raise ConfigurationError(
+            "Cannot parse worker.toml; the offline reader is unaffected"
+        ) from exc
     if set(raw) - {"api", "generation", "extraction", "consolidation"}:
         raise ConfigurationError("Unknown worker configuration section")
+    extraction_raw = raw.get("extraction", {})
+    consolidation_raw = raw.get("consolidation", {})
+    if not isinstance(extraction_raw, dict) or not isinstance(consolidation_raw, dict):
+        raise ConfigurationError("Model settings must be tables")
     config = WorkerConfig(
         api=_section(ApiConfig, raw.get("api", {})),
         generation=_section(GenerationConfig, raw.get("generation", {})),
-        extraction=_section(ModelConfig, raw.get("extraction", {})),
-        consolidation=_section(ModelConfig, raw.get("consolidation", raw.get("extraction", {}))),
+        extraction=_section(ModelConfig, extraction_raw),
+        consolidation=_section(ModelConfig, {**extraction_raw, **consolidation_raw}),
     )
     _validate(config)
     return config
@@ -134,17 +140,34 @@ def _validate(config: WorkerConfig) -> None:
         raise ConfigurationError("Keep helper ports outside Kimi's default user port range")
     if api.kimi_command and not Path(api.kimi_command[0]).is_absolute():
         raise ConfigurationError("api.kimi_command must start with an absolute executable path")
-    for name in ("request_timeout_seconds", "startup_timeout_seconds", "max_response_bytes",
-                 "max_transcript_pages", "max_transcript_bytes"):
+    for name in (
+        "request_timeout_seconds",
+        "startup_timeout_seconds",
+        "max_response_bytes",
+        "max_transcript_pages",
+        "max_transcript_bytes",
+    ):
         if getattr(api, name) <= 0:
             raise ConfigurationError(f"{name} must be positive")
     if not api.allowed_versions and not api.allow_unverified_version:
         raise ConfigurationError("At least one validated Kimi version is required")
-    for name in ("max_session_scan", "extraction_concurrency", "max_consolidation_sources",
-                 "lease_seconds", "heartbeat_seconds", "max_extraction_attempts",
-                 "max_input_tokens", "max_tool_bytes", "max_tool_read_bytes",
-                 "max_consolidation_steps", "max_run_model_calls", "max_daily_model_calls",
-                 "retained_generations", "retention_days", "max_notes_bytes"):
+    for name in (
+        "max_session_scan",
+        "extraction_concurrency",
+        "max_consolidation_sources",
+        "lease_seconds",
+        "heartbeat_seconds",
+        "max_extraction_attempts",
+        "max_input_tokens",
+        "max_tool_bytes",
+        "max_tool_read_bytes",
+        "max_consolidation_steps",
+        "max_run_model_calls",
+        "max_daily_model_calls",
+        "retained_generations",
+        "retention_days",
+        "max_notes_bytes",
+    ):
         if getattr(gen, name) <= 0:
             raise ConfigurationError(f"{name} must be positive")
     if gen.heartbeat_seconds * 2 >= gen.lease_seconds:

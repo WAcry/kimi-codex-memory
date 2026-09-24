@@ -21,8 +21,10 @@ def enqueue(payload: dict, home: Path) -> None:
     data = {"event": event, "session_id": session_id, "time": time.time()}
     write_json(home / "queue" / f"{time.time_ns()}-{uuid.uuid4().hex}.json", data)
     if event in {"TurnStarted", "Stop", "SessionEnd", "Interrupt", "StopFailure"}:
-        write_json(home / "activity" / f"{digest(session_id)}.json",
-                   {**data, "active": event == "TurnStarted"})
+        write_json(
+            home / "activity" / f"{digest(session_id)}.json",
+            {**data, "active": event == "TurnStarted"},
+        )
 
 
 def wake(home: Path) -> None:
@@ -36,8 +38,13 @@ def wake(home: Path) -> None:
     # stdout/stderr are disconnected: no inherited hook pipe can keep the hook waiting.
     subprocess.Popen(
         [sys.executable, "-m", "kimi_memory", "worker", "--drain"],
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        start_new_session=True, close_fds=True, cwd=home, env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        close_fds=True,
+        cwd=home,
+        env=env,
     )
 
 

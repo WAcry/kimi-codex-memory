@@ -56,8 +56,8 @@ max_output_tokens = 8192
 json_mode = true
 max_response_bytes = 2097152
 
-# Omit [consolidation] to inherit extraction settings. Both models must support tools
-# for consolidation; extraction itself never gets tools. Uncomment to use another model.
+# Consolidation inherits extraction settings; override only the fields you need.
+# The consolidation model must support tools; extraction itself never gets tools.
 # [consolidation]
 # protocol = "openai"
 # base_url = "https://YOUR_PROVIDER/v1"

@@ -82,7 +82,7 @@ def within(root: Path, relative: str) -> Path:
 
 
 def utf8_head(text: str, max_bytes: int) -> str:
-    return text.encode("utf-8")[:max(0, max_bytes)].decode("utf-8", errors="ignore")
+    return text.encode("utf-8")[: max(0, max_bytes)].decode("utf-8", errors="ignore")
 
 
 @contextmanager

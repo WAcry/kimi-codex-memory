@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Repo-local plugin entry. The hook module is independent from worker dependencies."""
+
 import sys
 from pathlib import Path
 

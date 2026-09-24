@@ -35,3 +35,7 @@ class BusyError(MemoryErrorBase):
 
 class UnsafePathError(MemoryErrorBase):
     code = "unsafe_path"
+
+
+class ResyncRequired(MemoryErrorBase):
+    code = "pending_citations"

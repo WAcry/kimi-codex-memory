@@ -16,18 +16,23 @@ class ReaderConfig:
     refresh_on_change: bool = False
 
 
+def _parse_reader(raw: object) -> ReaderConfig:
+    allowed = asdict(ReaderConfig())
+    if not isinstance(raw, dict) or set(raw) - set(allowed):
+        raise ValueError("Unknown reader option")
+    config = ReaderConfig(**raw)
+    if any(type(getattr(config, k)) is not type(v) for k, v in allowed.items()):
+        raise ValueError("Invalid reader option type")
+    if not 256 <= config.max_summary_bytes <= 131_072:
+        raise ValueError("Invalid reader byte limit")
+    return config
+
+
 def load_reader_config(home: Path) -> ReaderConfig:
     path = Path(os.environ.get("KIMI_MEMORY_READER_CONFIG", str(home / "reader.toml")))
     try:
         raw = tomllib.loads(path.read_text()) if path.exists() else {}
-        allowed = asdict(ReaderConfig())
-        if set(raw) - set(allowed):
-            raise ValueError("Unknown reader option")
-        config = ReaderConfig(**raw)
-        if any(type(getattr(config, k)) is not type(v) for k, v in allowed.items()):
-            raise ValueError("Invalid reader option type")
-        if not 256 <= config.max_summary_bytes <= 131_072:
-            raise ValueError("Invalid reader byte limit")
+        config = _parse_reader(raw)
         try:
             write_json(home / "reader-last-good.json", asdict(config))
         except OSError:
@@ -37,8 +42,7 @@ def load_reader_config(home: Path) -> ReaderConfig:
         # Writer configuration is separate; even a broken reader edit falls back locally.
         try:
             saved = read_json(home / "reader-last-good.json")
-            if isinstance(saved, dict):
-                return ReaderConfig(**saved)
+            return _parse_reader(saved)
         except (OSError, ValueError, TypeError):
             pass
         return ReaderConfig()
@@ -54,7 +58,7 @@ def render(home: Path | None = None) -> str:
     try:
         with (root / "memory_summary.md").open("rb") as handle:
             raw = handle.read(config.max_summary_bytes + 1)
-        summary = raw[:config.max_summary_bytes].decode("utf-8", errors="ignore")
+        summary = raw[: config.max_summary_bytes].decode("utf-8", errors="ignore")
         if len(raw) > config.max_summary_bytes:
             marker = "\n[Summary truncated; read the local summary file for remaining routes.]"
             summary = utf8_head(summary, config.max_summary_bytes - len(marker.encode())) + marker
@@ -96,7 +100,9 @@ def injection_for(session_id: str, home: Path | None = None) -> str:
         if not newly_available and not changed:
             return ""
     try:
-        write_json(state_path, {"injected": True, "has_summary": has_summary, "fingerprint": fingerprint})
+        write_json(
+            state_path, {"injected": True, "has_summary": has_summary, "fingerprint": fingerprint}
+        )
     except OSError:
         pass  # Deliver context even when local bookkeeping is not writable.
     return text
