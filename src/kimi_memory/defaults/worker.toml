@@ -1,0 +1,65 @@
+# Generation only. Any error here must leave local reading/injection operational.
+[api]
+# init fills this with the installed executable if it can find one.
+kimi_command = []
+server_url = ""
+auto_start = true
+port = 59627
+allowed_versions = ["2.1.0"]
+allow_unverified_version = false
+request_timeout_seconds = 20
+startup_timeout_seconds = 60
+page_size = 100
+max_response_bytes = 33554432
+max_transcript_pages = 1000
+max_transcript_bytes = 134217728
+
+[generation]
+enabled = true
+min_idle_hours = 6.0
+source_max_age_days = 10.0
+retention_days = 30.0
+max_session_scan = 5000
+max_extractions = 2
+extraction_concurrency = 2
+max_consolidation_sources = 256
+prune_batch_size = 200
+lease_seconds = 3600
+heartbeat_seconds = 90
+retry_delay_seconds = 3600
+max_extraction_attempts = 3
+consolidation_cooldown_seconds = 21600
+max_input_tokens = 100000
+max_tool_bytes = 8192
+max_rollout_summary_bytes = 9000
+max_memory_summary_bytes = 10000
+max_tool_read_bytes = 32768
+max_consolidation_steps = 24
+max_daily_model_calls = 100
+max_run_model_calls = 32
+include_cwds = []
+exclude_cwds = []
+exclude_session_ids = []
+retained_generations = 3
+max_notes_bytes = 2097152
+resource_retention_days = 7.0
+
+[extraction]
+protocol = "openai"
+# Set these explicitly, or select a provider from your Kimi config using kimi_provider.
+base_url = ""
+model = ""
+api_key_env = "KIMI_MEMORY_API_KEY"
+kimi_provider = ""
+timeout_seconds = 180
+max_output_tokens = 8192
+json_mode = true
+max_response_bytes = 2097152
+
+# Omit [consolidation] to inherit extraction settings. Both models must support tools
+# for consolidation; extraction itself never gets tools. Uncomment to use another model.
+# [consolidation]
+# protocol = "openai"
+# base_url = "https://YOUR_PROVIDER/v1"
+# model = "YOUR_CONSOLIDATION_MODEL"
+# api_key_env = "KIMI_MEMORY_API_KEY"

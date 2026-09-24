@@ -1,0 +1,49 @@
+{
+  "name": "kimi-code-memory",
+  "version": "0.1.0",
+  "description": "External memory v2 with offline reading and background generation",
+  "license": "Apache-2.0",
+  "systemPromptPath": "plugin/system.md",
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "command": "python3 \"$KIMI_PLUGIN_ROOT/plugin/hook.py\"",
+      "timeout": 3
+    },
+    {
+      "event": "UserPromptSubmit",
+      "command": "python3 \"$KIMI_PLUGIN_ROOT/plugin/hook.py\"",
+      "timeout": 3
+    },
+    {
+      "event": "TurnStarted",
+      "command": "python3 \"$KIMI_PLUGIN_ROOT/plugin/hook.py\"",
+      "timeout": 3
+    },
+    {
+      "event": "Stop",
+      "command": "python3 \"$KIMI_PLUGIN_ROOT/plugin/hook.py\"",
+      "timeout": 3
+    },
+    {
+      "event": "SessionEnd",
+      "command": "python3 \"$KIMI_PLUGIN_ROOT/plugin/hook.py\"",
+      "timeout": 3
+    },
+    {
+      "event": "Interrupt",
+      "command": "python3 \"$KIMI_PLUGIN_ROOT/plugin/hook.py\"",
+      "timeout": 3
+    },
+    {
+      "event": "StopFailure",
+      "command": "python3 \"$KIMI_PLUGIN_ROOT/plugin/hook.py\"",
+      "timeout": 3
+    },
+    {
+      "event": "PostCompact",
+      "command": "python3 \"$KIMI_PLUGIN_ROOT/plugin/hook.py\"",
+      "timeout": 3
+    }
+  ]
+}
