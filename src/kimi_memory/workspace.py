@@ -48,21 +48,7 @@ def ensure_layout(home: Path) -> None:
 
 
 def current_generation(home: Path) -> Path | None:
-    if (home / "current.json").exists():
-        return published_root(home)
-    link = home / "current"
-    if not link.is_symlink():
-        if link.exists():
-            raise UnsafePathError("current is not a managed publication link")
-        return None
-    target = link.resolve()
-    if target.parent != (home / "_generations").resolve() or not re.fullmatch(
-        r"[0-9a-f]{32}", target.name
-    ):
-        raise UnsafePathError("Invalid published-generation target")
-    if not target.is_dir():
-        raise UnsafePathError("Published generation is missing")
-    return target
+    return published_root(home)
 
 
 def _git(root: Path, *args: str) -> str:

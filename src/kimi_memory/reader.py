@@ -25,11 +25,6 @@ class ReaderConfig:
 
 
 def _parse_reader(raw: object) -> ReaderConfig:
-    if isinstance(raw, dict):
-        # 0.1 configuration migration: these unsupported behaviors are permanently removed.
-        raw = {
-            k: v for k, v in raw.items() if k not in {"inject_every_prompt", "refresh_on_change"}
-        }
     allowed = asdict(ReaderConfig())
     if not isinstance(raw, dict) or set(raw) - set(allowed):
         raise ValueError("Unknown reader option")
@@ -69,7 +64,9 @@ def render(home: Path | None = None) -> str:
     try:
         root = published_root(home)
     except (OSError, ValueError, UnsafePathError):
-        root = home / "memories_v2"
+        return ""
+    if root is None:
+        return ""
     summary = ""
     try:
         with (root / "memory_summary.md").open("rb") as handle:
@@ -112,20 +109,20 @@ def injection_for(session_id: str, home: Path | None = None) -> str:
         state = read_json(state_path, 4096)
     except (OSError, ValueError):
         state = {}
-    if isinstance(state, dict) and (state.get("checked") or state.get("injected")):
+    if isinstance(state, dict) and state.get("checked"):
         return ""
     text = render(home)
     try:
-        summary_path = published_root(home) / "memory_summary.md"
+        root = published_root(home)
     except (OSError, ValueError, UnsafePathError):
-        summary_path = home / "memories_v2/memory_summary.md"
+        root = None
     try:
         write_json(
             state_path,
             {
                 "checked": True,
                 "injected": bool(text),
-                "generation": summary_path.parent.name if text else None,
+                "generation": root.name if text and root is not None else None,
                 "time": time.time(),
             },
         )

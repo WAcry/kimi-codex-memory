@@ -21,24 +21,32 @@ main 上的 CI 在六种平台测试、构建、搬移验证，全部通过后�
 版本一致。只有版本尚未发布时才创建 immutable GitHub Release；绝不覆盖
 已发布二进制。源码 archive 不等于包含 runtime 的 release ZIP。
 
-Marketplace 指向完整 ZIP；版本提示及用户确认由 Kimi 管理。它目前不提供
+Marketplace 指向条目版本对应的完整 ZIP，不用 latest 指向另一个版本。
+新目录条目先于发布就绪时，安装可能暂时失败，但不会静默装入旧版本。
+版本提示及用户确认由 Kimi 管理。它目前不提供
 通用的第三方静默自动更新，因此不假装已有自动升级，也不在会话期间
 偷偷覆盖 runtime。更新原生插件不等于更新 Kimi。
 
 ## 数据与迁移
 
-数据目录独立于 managed plugin。配置文件只保存用户覆盖；新版默认值可以
-生效，旧版 inject_every_prompt、refresh_on_change、allowed_versions 等
-字段被忽略，不恢复被用户否定的行为。
+数据目录独立于 managed plugin，默认只有 ~/.kimi-codex-memory，也支持
+用户显式指定 KIMI_MEMORY_HOME。配置文件只保存用户覆盖；未知选项按正常
+配置错误处理，不进行旧名称转换或忽略开发期字段。
 
-SQLite 使用 user_version，与产品/Kimi版本分开。v1→v2 先通过 SQLite
-backup API 保存包含 WAL 的快照，再迁移；重复启动不重复备份。更高的
-未知 schema 暂停 writer，不尝试降级，也不妨碍离线 reader。旧程序回滚
-不能把旧数据库覆盖回去并丢掉新的 notes/引用；至少仍可读取已发布文件。
+1.0.0 是正式兼容起点，SQLite SCHEMA_VERSION=1。版本 0 仅用于初始化
+真正空的数据库，创建完整 schema 与版本标记是同一事务。已有版本 1
+直接打开、更新 writer_version，不重建表。其他 schema 拒绝写入，reader
+仍然独立。没有开发版数据库备份/迁移分支，也不自动采用非空无版本数据库。
 
-新布局以 current.json 选择不可变 generation，避免 Windows 符号链接
-权限要求。支持从此前开发版 current 符号链接读取已有数据，既不创建旧
-协议分支，也不复制完整历史。
+current.json（format=1）是唯一发布指针，选择不可变 generation；无需
+Windows 符号链接权限。缺失返回无发布状态，格式不明或损坏时不从其他
+路径“恢复”摘要。不复制原始历史、不扫描旧产品数据目录。
+
+今后 schema 真正改变时再添加从已正式发布版本出发的显式迁移，迁移前
+使用 SQLite backup API 保存包含 WAL 的备份，并覆盖失败恢复与重复运行。
+不能降级/清空新数据库来让旧 writer 重新工作。产品版本升级本身不触发
+迁移、全量重生成或重复注入。基线数据样例固定在 tests/fixtures/release-v1/，
+用于后续版本验证配置、记忆、notes、引用去重和上下文检查状态仍可用。
 
 ## 兼容策略
 

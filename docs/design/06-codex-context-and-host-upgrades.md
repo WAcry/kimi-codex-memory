@@ -45,8 +45,8 @@ stdout 不直接进入模型。因此我们仍在下个 UserPromptSubmit 补入�
 按需读取本地文件。这个宿主时机差异是明确边界，不新增引擎补丁。
 
 reader receipt 记录 checked 与实际 injected：缺失摘要也完成一次检查；
-普通 SessionStart 不重置；PostCompact 重置。旧版本已有 injected 标记
-继续被识别，不因插件升级产生重复注入。
+普通 SessionStart 不重置；PostCompact 重置。checked 是唯一的完成检查
+标志。正式版本升级保留该记录，不恢复开发期 receipt 的判断分支。
 
 ## Kimi 升级的真实机制
 
@@ -72,7 +72,7 @@ NO_AUTO_UPDATE 阻止自动 staged payload，但 `manual=true` 的显式用户
 ## 回归验证
 
 reader 测试覆盖缺失/空摘要、首次发布后不插入、普通 resume 不重复、
-compact 后重新读取、compact 后再 resume 不丢掉待恢复状态、旧 receipt。
+compact 后重新读取、compact 后再 resume 不丢掉待恢复状态。
 模拟宿主进程固定启动时版本，测试运行中安装变更后继续读、正常关闭后
 启动新版本；同时证明没有 --version 探针或父进程环境修改。
 另测安装暂时缺失仍借用健康服务、移除的 executable hint、子进程树回收。

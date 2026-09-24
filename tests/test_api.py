@@ -72,7 +72,7 @@ def test_new_version_tries_the_actual_contract(transcript, version):
         api = client(origin)
         api.handshake()
         assert api.transcript(transcript.source).source.id == transcript.source.id
-        assert api.unverified is True
+        assert api.server_version == version
 
 
 def test_server_identity_mismatch_is_rejected(transcript):

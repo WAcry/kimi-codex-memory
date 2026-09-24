@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 
 from . import __version__
+from .errors import UnsafePathError
 from .files import atomic_write, memory_home, published_root, read_json, write_json
 
 
@@ -58,12 +59,16 @@ def local_status(home: Path) -> dict:
         worker = read_json(home / "worker-status.json", 32_768)
     except (OSError, ValueError):
         worker = {"state": "not_run"}
+    try:
+        root = published_root(home)
+    except (OSError, ValueError, UnsafePathError):
+        root = None
     return {
         "version": __version__,
         "home": str(home),
         "reading_enabled": reader.enabled,
-        "summary_available": (published_root(home) / "memory_summary.md").is_file(),
-        "memory_path": str(published_root(home)),
+        "summary_available": root is not None and (root / "memory_summary.md").is_file(),
+        "memory_path": str(root) if root is not None else None,
         "generation": worker,
     }
 
@@ -96,7 +101,6 @@ def doctor(home: Path, *, probe: bool = False) -> dict:
                     "reachable": True,
                     "version": client.server_version,
                     "server_id": client.server_id,
-                    "unverified": client.unverified,
                 }
     except MemoryErrorBase as exc:
         result["worker_issue"] = {"code": exc.code, "message": str(exc)}

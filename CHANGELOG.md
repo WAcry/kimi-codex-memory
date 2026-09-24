@@ -1,35 +1,21 @@
-# 0.2.1
+# 1.0.0
 
-Memory injection now follows the verified Codex v2 context boundaries. First
-publication no longer inserts memory into an ongoing conversation; ordinary
-resume keeps the existing context. Compaction still restores memory at Kimi's
-next supported input boundary. Empty initial memory does not inject an empty
-memory prompt, and regular turns do not reload the summary.
+First public release of Kimi Codex Memory.
 
-Kimi upgrades no longer trigger a preliminary version probe or a false
-startup-version mismatch. Healthy helpers finish their current batch, missing
-launcher hints fall back to PATH, and owned process trees are cleaned up.
-Background hook launches set the auto-update opt-out before Kimi starts, without
-changing the user's update settings.
+- Self-contained Kimi plugin for Windows, macOS and Linux, on x64 and ARM64.
+- Uses Kimi's effective default model and credentials: subscription OAuth or
+  third-party providers with Chat Completions, Responses or Anthropic Messages.
+- Codex memory-v2 extraction, consolidation, citation accounting and retention,
+  with the original prompts pinned and verified.
+- Offline memory remains readable when generation, authentication or the host
+  history API fails. Injection follows initial-context and compaction boundaries.
+- Tries new Kimi releases against the actual API without a product-version
+  whitelist, and never upgrades Kimi on the user's behalf.
 
-# 0.2.0
+Version 1.0.0 establishes the public configuration and data-compatibility
+baseline. Development-only rename, configuration, database and publication
+migrations have been removed. Future compatible releases preserve 1.0.0+ user
+data; necessary schema changes will include tested migration and recovery.
 
-Kimi Codex Memory installs as a self-contained Kimi plugin on Windows, macOS and
-Linux. It inherits the current Kimi default model and authentication, including
-subscription OAuth, third-party providers, and OpenAI Responses. No Python, Node
-installation, separate API key or memory configuration is required.
-
-Memory v2 prompts remain pinned to the upstream originals. Model budgets honor
-the user's configured context window; an unknown window falls back to 256,000
-tokens. Repeated per-prompt and change-triggered injection options are removed.
-
-New Kimi versions are tried against the actual API contract, not rejected by a
-version whitelist. Quota, authentication and generation failures remain quiet
-and never disable existing memory. Failed work is retained with bounded backoff.
-
-Updates use Kimi's plugin manager and never update Kimi itself. User data remains
-outside the plugin; database upgrades are backed up and published snapshots stay
-readable without the worker. The old development data directory is preserved.
-
-This is an independent integration, not an official Moonshot or OpenAI product.
-Generation uses the configured provider's quota.
+This is an independent project, not an official Moonshot or OpenAI product.
+Generation uses the selected provider's quota.

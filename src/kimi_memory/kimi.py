@@ -105,7 +105,6 @@ class KimiClient:
         self.server_id = ""
         self.server_version = ""
         self.started_at = 0.0
-        self.unverified = False
 
     def raw_get(self, path: str):
         for attempt in range(2):
@@ -139,8 +138,6 @@ class KimiClient:
             raise CompatibilityError("API server identity differs from the previous handshake")
         if data.get("dangerous_bypass_auth") is True or data.get("backend") != "v2":
             raise CompatibilityError("Expected an authenticated Kimi v2 backend")
-        # Product versions are diagnostic, not a schema lock. Try the actual contract.
-        self.unverified = self.server_version != "2.1.0"
         spec = obj(self.raw_get("/openapi.json"), "OpenAPI document")
         paths = obj(spec.get("paths"), "OpenAPI paths")
         for path in ("/api/v1/sessions", "/api/v1/sessions/{session_id}/transcript"):

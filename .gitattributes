@@ -9,6 +9,7 @@ plugin/run-hook text eol=lf
 *.json text eol=lf
 *.yml text eol=lf
 *.lock text eol=lf
+tests/fixtures/release-v1/** text eol=lf
 LICENSE text eol=lf
 NOTICE text eol=lf
 **/*LICENSE* text eol=lf

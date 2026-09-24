@@ -48,6 +48,9 @@ def test_native_distribution_versions_match_and_no_pypi_workflow():
         plugin["version"] == catalog["plugins"][0]["version"] == package["version"] == __version__
     )
     assert plugin["name"] == catalog["plugins"][0]["id"] == "kimi-codex-memory"
+    assert catalog["plugins"][0]["source"] == (
+        f"https://github.com/WAcry/kimi-codex-memory/releases/download/v{__version__}/kimi-codex-memory.zip"
+    )
     assert package["private"] is True
 
 

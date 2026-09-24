@@ -15,10 +15,7 @@ from .errors import BusyError, UnsafePathError
 def memory_home() -> Path:
     if os.environ.get("KIMI_MEMORY_HOME"):
         return Path(os.environ["KIMI_MEMORY_HOME"]).expanduser().resolve()
-    home = Path.home() / ".kimi-codex-memory"
-    legacy = Path.home() / ".kimi-code-memory"
-    # Keep existing runtime data during the product rename; never silently copy histories.
-    return legacy.resolve() if not home.exists() and legacy.exists() else home.resolve()
+    return (Path.home() / ".kimi-codex-memory").resolve()
 
 
 def private_dir(path: Path) -> None:
@@ -142,12 +139,12 @@ def file_lock(path: Path, *, blocking: bool = False):
         os.close(fd)
 
 
-def published_root(home: Path) -> Path:
+def published_root(home: Path) -> Path | None:
     """Resolve one immutable generation without opening the generation database."""
     pointer = home / "current.json"
     if pointer.exists():
         data = read_json(pointer, 4096)
-        if not isinstance(data, dict) or data.get("format") != 1:
+        if not isinstance(data, dict) or type(data.get("format")) is not int or data["format"] != 1:
             raise UnsafePathError("Unrecognized publication pointer")
         generation = data.get("generation", "")
         if not isinstance(generation, str) or not re.fullmatch(r"[0-9a-f]{32}", generation):
@@ -156,10 +153,4 @@ def published_root(home: Path) -> Path:
         if root.is_symlink() or not root.is_dir():
             raise UnsafePathError("Published generation missing or replaced")
         return root
-    legacy = home / "current"
-    if legacy.is_symlink():
-        root = legacy.resolve()
-        if root.parent == (home / "_generations").resolve() and root.is_dir():
-            return root
-        raise UnsafePathError("Invalid legacy publication pointer")
-    return home / "memories_v2"
+    return None

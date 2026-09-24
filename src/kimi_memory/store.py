@@ -16,27 +16,30 @@ from .errors import ConfigurationError, LeaseLostError, ModelError
 from .files import private_dir
 from .kimi import Source
 
+SCHEMA_VERSION = 1
+
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS summaries (
+CREATE TABLE summaries (
  source_id TEXT PRIMARY KEY, source_version TEXT NOT NULL, source_updated_at REAL NOT NULL,
  generated_at REAL NOT NULL, cwd TEXT NOT NULL, summary TEXT NOT NULL, slug TEXT NOT NULL,
  usage_count INTEGER, last_usage REAL, selected INTEGER NOT NULL DEFAULT 0
 );
-CREATE TABLE IF NOT EXISTS jobs (
+CREATE TABLE jobs (
  job_key TEXT PRIMARY KEY, source_version TEXT NOT NULL, success_version TEXT,
  owner TEXT, lease_until REAL NOT NULL DEFAULT 0, retry_after REAL NOT NULL DEFAULT 0,
  attempts_left INTEGER NOT NULL, last_success REAL, error_code TEXT
 );
-CREATE TABLE IF NOT EXISTS citation_receipts (
+CREATE TABLE citation_receipts (
  event_key TEXT NOT NULL, source_id TEXT NOT NULL, used_at REAL NOT NULL,
  PRIMARY KEY (event_key, source_id)
 );
-CREATE TABLE IF NOT EXISTS scan_state (
+CREATE TABLE scan_state (
  source_id TEXT PRIMARY KEY, updated_at REAL NOT NULL, version TEXT NOT NULL, synced_at REAL NOT NULL
 );
-CREATE TABLE IF NOT EXISTS counters (day TEXT PRIMARY KEY, model_calls INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS publication (singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+CREATE TABLE counters (day TEXT PRIMARY KEY, model_calls INTEGER NOT NULL);
+CREATE TABLE publication (singleton INTEGER PRIMARY KEY CHECK(singleton=1),
  generation TEXT NOT NULL, owner TEXT NOT NULL, manifest TEXT NOT NULL);
+CREATE TABLE runtime_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
 
@@ -48,35 +51,35 @@ class Store:
         self.lock = threading.RLock()
         self.db = sqlite3.connect(path, timeout=5, isolation_level=None, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
-        version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2):
+        try:
+            version = self.db.execute("PRAGMA user_version").fetchone()[0]
+            if version not in (0, SCHEMA_VERSION):
+                raise ConfigurationError(
+                    "Unsupported memory database version; published files remain readable"
+                )
+            if (
+                version == 0
+                and self.db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' LIMIT 1"
+                ).fetchone()
+            ):
+                raise ConfigurationError("Refusing to initialize an unversioned nonempty database")
+            self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.execute("PRAGMA synchronous=FULL")
+            if version == 0:
+                self.db.executescript(
+                    "BEGIN IMMEDIATE;\n"
+                    + SCHEMA
+                    + f"PRAGMA user_version={SCHEMA_VERSION};\nCOMMIT;"
+                )
+            with self.transaction() as db:
+                db.execute(
+                    "INSERT OR REPLACE INTO runtime_metadata VALUES ('writer_version', ?)",
+                    (__version__,),
+                )
+        except BaseException:
             self.db.close()
-            raise ConfigurationError(
-                "Unsupported memory database version; published files remain readable"
-            )
-        if version == 1:
-            backup_path = path.parent / "backups" / f"state-v1-{time.time_ns()}.sqlite"
-            private_dir(backup_path.parent)
-            backup_path.touch(mode=0o600)
-            backup = sqlite3.connect(backup_path)
-            try:
-                self.db.backup(
-                    backup
-                )  # Includes committed WAL state; never copy a live .sqlite file.
-            finally:
-                backup.close()
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute("PRAGMA synchronous=FULL")
-        self.db.executescript(SCHEMA)
-        with self.transaction() as db:
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS runtime_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-            )
-            db.execute(
-                "INSERT OR REPLACE INTO runtime_metadata VALUES ('writer_version', ?)",
-                (__version__,),
-            )
-            db.execute("PRAGMA user_version=2")
+            raise
 
     def close(self) -> None:
         with self.lock:

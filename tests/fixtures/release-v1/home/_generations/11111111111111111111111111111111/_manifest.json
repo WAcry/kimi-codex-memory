@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "generation": "11111111111111111111111111111111",
+  "input_hash": "public-v1-fixture",
+  "published_at": 1700000000,
+  "summary_hash": "cf4590b29479a5ddb24adf604a5e05b4e010210908f3f57e531a208e89b1d7d8",
+  "sources": [
+    {
+      "source_id": "session_public_baseline",
+      "source_version": "fixture-version",
+      "file": "2023-11-14T22-11-40-07b0fbe455-example.md"
+    }
+  ]
+}

@@ -103,16 +103,6 @@ def test_regular_turn_does_not_reread_published_memory(home, monkeypatch):
     assert injection_for("s1", home) == ""
 
 
-def test_previous_release_injection_receipt_is_not_replayed_on_upgrade(home):
-    from kimi_memory.files import digest, write_json
-
-    seed_published(home)
-    write_json(
-        home / "injections" / f"{digest('s1')}.json", {"injected": True, "has_summary": False}
-    )
-    assert injection_for("s1", home) == ""
-
-
 def test_local_disable_is_independent(home):
     seed_published(home)
     atomic_write(home / "reader.toml", "enabled = false\n")
@@ -263,11 +253,33 @@ def test_internal_worker_sessions_do_not_recurse(home, monkeypatch):
     assert handle({"hook_event_name": "TurnStarted", "session_id": "internal"}, home) == {}
 
 
-def test_no_repeated_injection_even_when_old_unsupported_options_are_true(home):
+def test_published_changes_do_not_refresh_the_current_context(home):
     directory = seed_published(home)
-    atomic_write(home / "reader.toml", "inject_every_prompt = true\nrefresh_on_change = true\n")
     assert injection_for("s", home)
     assert injection_for("s", home) == ""
     atomic_write(directory / "memory_summary.md", valid_summary("Changed preference"))
     assert injection_for("s", home) == ""
     assert "Changed preference" in injection_for("new-session", home)
+
+
+def test_unknown_reader_option_uses_last_good_config(home):
+    seed_published(home)
+    atomic_write(home / "reader.toml", "enabled = false\n")
+    assert render(home) == ""
+    atomic_write(home / "reader.toml", "enabled = true\nunknown_option = true\n")
+    assert render(home) == ""
+
+
+def test_missing_publication_is_explicit_in_offline_status(home):
+    status = local_status(home)
+    assert status["summary_available"] is False
+    assert status["memory_path"] is None
+    assert render(home) == ""
+
+
+@pytest.mark.parametrize("pointer", ["broken [", '{"format": 99}', '{"format": true}'])
+def test_unrecognized_publication_is_reported_unavailable_without_rewriting_it(home, pointer):
+    atomic_write(home / "current.json", pointer)
+    assert render(home) == ""
+    assert local_status(home)["summary_available"] is False
+    assert (home / "current.json").read_text() == pointer

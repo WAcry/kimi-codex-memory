@@ -149,13 +149,10 @@ def test_hook_environment_model_is_resolved(tmp_path, monkeypatch):
     assert result.input_budget() == 280_000
 
 
-def test_old_installation_whitelist_cannot_pin_new_releases(home):
-    atomic_write(
-        home / "worker.toml", '[api]\nallowed_versions=["2.1.0"]\nallow_unverified_version=false\n'
-    )
-    config = load_worker_config(home)
-    assert not hasattr(config.api, "allowed_versions")
-    assert config.extraction == ModelConfig()
+def test_unknown_api_configuration_is_reported(home):
+    atomic_write(home / "worker.toml", "[api]\nunknown_option = true\n")
+    with pytest.raises(ConfigurationError, match="Unknown ApiConfig option"):
+        load_worker_config(home)
 
 
 def test_responses_replays_reasoning_calls_and_call_results(tmp_path):

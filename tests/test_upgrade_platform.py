@@ -8,11 +8,11 @@ import pytest
 from conftest import seed_published
 
 from kimi_memory.errors import ConfigurationError
-from kimi_memory.files import atomic_write, file_lock, published_root
+from kimi_memory.files import atomic_write, file_lock, memory_home, published_root
 from kimi_memory.hooks import handle, wake
 from kimi_memory.platform import kimi_command, process_alive, remove_owned_tree, worker_command
 from kimi_memory.reader import render
-from kimi_memory.store import Store
+from kimi_memory.store import SCHEMA_VERSION, Store
 from kimi_memory.worker import run
 
 
@@ -49,26 +49,62 @@ def test_quiet_backoff_does_not_spawn_or_block_injection(home, monkeypatch):
     )
 
 
-def test_database_v1_upgrade_backs_up_committed_wal_and_preserves_data(home):
+def test_current_schema_reopens_without_resetting_data_or_creating_backups(home, monkeypatch):
     path = home / "state.sqlite"
-    db = sqlite3.connect(path)
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("CREATE TABLE sentinel (value TEXT)")
-    db.execute("INSERT INTO sentinel VALUES ('must-survive')")
-    db.execute("PRAGMA user_version=1")
-    db.commit()
     store = Store(path)
-    assert store.db.execute("PRAGMA user_version").fetchone()[0] == 2
-    assert store.db.execute("SELECT value FROM sentinel").fetchone()[0] == "must-survive"
-    backup_path = next((home / "backups").glob("*.sqlite"))
-    with sqlite3.connect(backup_path) as backup:
-        assert backup.execute("SELECT value FROM sentinel").fetchone()[0] == "must-survive"
-        assert backup.execute("PRAGMA user_version").fetchone()[0] == 1
+    store.db.execute("INSERT INTO counters VALUES ('2026-01-01', 7)")
+    schema = store.db.execute("SELECT sql FROM sqlite_master ORDER BY name").fetchall()
     store.close()
-    db.close()
+    monkeypatch.setattr("kimi_memory.store.__version__", "test-next-compatible-build")
     again = Store(path)
-    again.close()
-    assert len(list((home / "backups").glob("*.sqlite"))) == 1
+    try:
+        assert again.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        assert again.db.execute("SELECT sql FROM sqlite_master ORDER BY name").fetchall() == schema
+        assert again.db.execute("SELECT model_calls FROM counters").fetchone()[0] == 7
+        assert (
+            again.db.execute(
+                "SELECT value FROM runtime_metadata WHERE key='writer_version'"
+            ).fetchone()[0]
+            == "test-next-compatible-build"
+        )
+        assert not (home / "backups").exists()
+    finally:
+        again.close()
+
+
+def test_default_data_home_and_explicit_override_do_not_create_directories(tmp_path, monkeypatch):
+    monkeypatch.delenv("KIMI_MEMORY_HOME", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    assert memory_home() == (tmp_path / ".kimi-codex-memory").resolve()
+    override = tmp_path / "custom-memory"
+    monkeypatch.setenv("KIMI_MEMORY_HOME", str(override))
+    assert memory_home() == override.resolve()
+    assert not override.exists()
+
+
+def test_unversioned_nonempty_database_is_not_adopted_or_modified(home):
+    path = home / "state.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE unrelated (value TEXT)")
+        db.execute("INSERT INTO unrelated VALUES ('must-survive')")
+    before = path.read_bytes()
+    with pytest.raises(ConfigurationError, match="unversioned nonempty"):
+        Store(path)
+    assert path.read_bytes() == before
+
+
+def test_corrupt_current_schema_is_not_silently_recreated(home):
+    path = home / "state.sqlite"
+    store = Store(path)
+    store.db.execute("DROP TABLE runtime_metadata")
+    store.close()
+    with pytest.raises(sqlite3.OperationalError):
+        Store(path)
+    with sqlite3.connect(path) as db:
+        assert (
+            db.execute("SELECT name FROM sqlite_master WHERE name='runtime_metadata'").fetchone()
+            is None
+        )
 
 
 def test_future_database_version_is_not_downgraded_and_reader_survives(home):

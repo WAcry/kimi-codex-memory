@@ -79,12 +79,6 @@ class WorkerConfig:
 def _section(cls, value: object):
     if not isinstance(value, dict):
         raise ConfigurationError(f"{cls.__name__} must be a table")
-    if cls is ApiConfig:
-        value = {
-            k: v
-            for k, v in value.items()
-            if k not in {"allowed_versions", "allow_unverified_version"}
-        }
     defaults = cls()
     allowed = {field.name for field in fields(cls)}
     unknown = set(value) - allowed
