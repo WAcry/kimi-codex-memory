@@ -73,7 +73,8 @@ def handle(payload: dict, home: Path | None = None, *, spawn: bool = True) -> di
         return {}
     if len(session_id) > 1024 or os.environ.get("KIMI_MEMORY_INTERNAL") == "1":
         return {}
-    if event in {"SessionStart", "PostCompact"}:
+    # A normal resume reuses recorded context; only compaction rebuilds the boundary.
+    if event == "PostCompact":
         reset_injection(session_id, home)
     if event == "UserPromptSubmit":
         # This path never even loads generation config, database, or API compatibility state.

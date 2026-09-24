@@ -1,3 +1,17 @@
+# 0.2.1
+
+Memory injection now follows the verified Codex v2 context boundaries. First
+publication no longer inserts memory into an ongoing conversation; ordinary
+resume keeps the existing context. Compaction still restores memory at Kimi's
+next supported input boundary. Empty initial memory does not inject an empty
+memory prompt, and regular turns do not reload the summary.
+
+Kimi upgrades no longer trigger a preliminary version probe or a false
+startup-version mismatch. Healthy helpers finish their current batch, missing
+launcher hints fall back to PATH, and owned process trees are cleaned up.
+Background hook launches set the auto-update opt-out before Kimi starts, without
+changing the user's update settings.
+
 # 0.2.0
 
 Kimi Codex Memory installs as a self-contained Kimi plugin on Windows, macOS and

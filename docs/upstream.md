@@ -64,3 +64,10 @@ Codex phase2 会启动隔离的 coding agent；其普通工具来自 core 的工
 存储、请求头及许可证。不是从用户机器任意加载一份未确定版本的私有模块。
 `bridge/auth.ts` 是薄适配，`native/auth.mjs` 是固定依赖构建出的运行文件。
 Windows 的原生刷新协调维持上游 best-effort 语义；没有另行承诺严格锁。
+
+## 注入时机追踪
+
+v2 的 ContextContributor 是 thread-context contributor，不是每 turn
+的动态记忆刷新。完整上下文构建才读取摘要；缺失文件不贡献 memory prompt。
+正常 resume 复用历史 baseline，compact 会重建它。首次生成不会主动通知
+前台注入。具体文件、调用链与宿主适配边界见 DESIGN 06 与 ADR 0006。

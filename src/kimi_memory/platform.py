@@ -85,7 +85,11 @@ def stop_owned(child: subprocess.Popen) -> None:
         )
         child.wait(timeout=10)
         return
-    child.terminate()
+    # Native staged updates may re-exec under a waiting wrapper in this owned group.
+    try:
+        os.killpg(child.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
     try:
         child.wait(timeout=10)
     except subprocess.TimeoutExpired:
@@ -97,7 +101,10 @@ def kimi_command(configured: tuple[str, ...] = ()) -> list[str]:
     """Resolve the host on each worker start, including the standard Windows npm shim."""
     command = list(configured)
     if not command:
-        candidate = os.environ.get("KIMI_MEMORY_HOST_EXECUTABLE") or shutil.which("kimi")
+        candidate = os.environ.get("KIMI_MEMORY_HOST_EXECUTABLE")
+        # An installer may remove a launcher hint between this worker's batches.
+        if not candidate or not Path(candidate).is_file():
+            candidate = shutil.which("kimi")
         if not candidate:
             raise OSError("Kimi Code is not on PATH")
         command = [candidate]

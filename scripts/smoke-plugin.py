@@ -91,7 +91,8 @@ def main():
                 raise RuntimeError(result.stderr[:500])
             return result.stdout
 
-        assert run([str(binary), "--version"]).strip() == "0.2.0"
+        manifest = json.loads((root / "kimi.plugin.json").read_text(encoding="utf-8"))
+        assert run([str(binary), "--version"]).strip() == manifest["version"]
         assert (binary.parent / "licenses/CPython-LICENSE.txt").is_file()
         assert (binary.parent / "licenses/PyInstaller-COPYING.txt").is_file()
         run([str(binary), "init"])

@@ -14,7 +14,7 @@ from kimi_memory.errors import TransportError
 from kimi_memory.evidence import normalize
 from kimi_memory.files import atomic_write, published_root, write_json
 from kimi_memory.kimi import Source
-from kimi_memory.platform import process_options
+from kimi_memory.platform import process_alive, process_options
 from kimi_memory.server import ServerManager, live_instances
 from kimi_memory.worker import run_pass
 
@@ -54,6 +54,59 @@ def test_new_server_uses_the_same_contract_without_legacy_fallback(tmp_path):
         api = manager.connect()
         assert api.sessions(since=0, limit=10) == []
         assert manager.child is None
+
+
+def test_running_helper_survives_installation_upgrade_and_next_batch_uses_new_version(
+    tmp_path, monkeypatch
+):
+    installation = tmp_path / "installation"
+    atomic_write(installation / "version", "2.1.0")
+    script = Path(__file__).parent / "fixtures/kimi_helper.py"
+    config = ApiConfig(
+        kimi_command=(sys.executable, str(script), str(installation)), startup_timeout_seconds=5
+    )
+    home = tmp_path / "kimi"
+    monkeypatch.setenv("KIMI_CODE_NO_AUTO_UPDATE", "0")
+    owner = ServerManager(config, home=home)
+    with owner as api:
+        pid = owner.child.pid
+        assert api.server_version == "2.1.0"
+        assert (installation / "child-auto-update").read_text() == "1"
+        assert os.environ["KIMI_CODE_NO_AUTO_UPDATE"] == "0"
+        atomic_write(installation / "version", "2.1.7")
+        # No polling/restart merely because the install on disk changed.
+        assert api.get("/api/v1/meta")["server_version"] == "2.1.0"
+        assert api.sessions(since=0, limit=10) == []
+        with ServerManager(config, home=home) as peer:
+            assert peer.server_id == api.server_id
+        assert owner.child.pid == pid and owner.child.poll() is None
+    with ServerManager(config, home=home) as api:
+        assert api.server_version == "2.1.7"
+        assert api.sessions(since=0, limit=10) == []
+    assert not (installation / "version-probed").exists()
+    assert live_instances(home) == []
+
+
+def test_helper_can_borrow_healthy_server_when_installation_is_temporarily_missing(tmp_path):
+    with serve(NativeApi([])) as (origin, _):
+        home = tmp_path / "kimi"
+        write_json(
+            home / "server/instances/existing.json",
+            {
+                "pid": os.getpid(),
+                "host": "127.0.0.1",
+                "port": int(origin.rsplit(":", 1)[1]),
+                "server_id": "registered",
+                "host_version": "2.1.0",
+                "started_at": 1,
+            },
+        )
+        manager = ServerManager(
+            ApiConfig(kimi_command=(str(tmp_path / "missing-kimi"),)), home=home
+        )
+        with manager as api:
+            assert manager.borrowed and manager.child is None
+            assert api.sessions(since=0, limit=1) == []
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permission-bit assertion")
@@ -118,6 +171,38 @@ def test_owner_close_only_reaps_its_actual_child(tmp_path):
         if owned.poll() is None:
             owned.terminate()
             owned.wait(timeout=5)
+
+
+def test_close_reaps_a_reexec_style_waiting_parent_and_child(tmp_path):
+    marker = tmp_path / "child-pid"
+    code = (
+        "import signal, subprocess, sys, time\nfrom pathlib import Path\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "def finish(*_):\n child.wait(timeout=5)\n raise SystemExit(0)\n"
+        "signal.signal(signal.SIGTERM, finish)\n"
+        "Path(sys.argv[1]).write_text(str(child.pid))\nchild.wait()\n"
+    )
+    owner = ServerManager(ApiConfig(), home=tmp_path / "kimi")
+    owner.child = subprocess.Popen(
+        [sys.executable, "-c", code, str(marker)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        **process_options(),
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        nested_pid = int(marker.read_text())
+        assert process_alive(nested_pid)
+        owner.close()
+        deadline = time.monotonic() + 5
+        while process_alive(nested_pid) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert not process_alive(nested_pid)
+    finally:
+        owner.close()
 
 
 @pytest.mark.skipif(

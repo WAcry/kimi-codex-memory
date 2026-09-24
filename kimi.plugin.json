@@ -1,48 +1,48 @@
 {
   "name": "kimi-codex-memory",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "External memory v2 with offline reading and background generation",
   "license": "Apache-2.0",
   "systemPromptPath": "plugin/system.md",
   "hooks": [
     {
       "event": "SessionStart",
-      "command": "kimi __plugin_run_node plugin/launch.mjs hook",
+      "command": "\"plugin/run-hook\" hook",
       "timeout": 5
     },
     {
       "event": "UserPromptSubmit",
-      "command": "kimi __plugin_run_node plugin/launch.mjs hook",
+      "command": "\"plugin/run-hook\" hook",
       "timeout": 5
     },
     {
       "event": "TurnStarted",
-      "command": "kimi __plugin_run_node plugin/launch.mjs hook",
+      "command": "\"plugin/run-hook\" hook",
       "timeout": 5
     },
     {
       "event": "Stop",
-      "command": "kimi __plugin_run_node plugin/launch.mjs hook",
+      "command": "\"plugin/run-hook\" hook",
       "timeout": 5
     },
     {
       "event": "SessionEnd",
-      "command": "kimi __plugin_run_node plugin/launch.mjs hook",
+      "command": "\"plugin/run-hook\" hook",
       "timeout": 5
     },
     {
       "event": "Interrupt",
-      "command": "kimi __plugin_run_node plugin/launch.mjs hook",
+      "command": "\"plugin/run-hook\" hook",
       "timeout": 5
     },
     {
       "event": "StopFailure",
-      "command": "kimi __plugin_run_node plugin/launch.mjs hook",
+      "command": "\"plugin/run-hook\" hook",
       "timeout": 5
     },
     {
       "event": "PostCompact",
-      "command": "kimi __plugin_run_node plugin/launch.mjs hook",
+      "command": "\"plugin/run-hook\" hook",
       "timeout": 5
     }
   ]

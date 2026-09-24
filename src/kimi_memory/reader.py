@@ -80,6 +80,9 @@ def render(home: Path | None = None) -> str:
             summary = utf8_head(summary, config.max_summary_bytes - len(marker.encode())) + marker
     except (OSError, ValueError):
         pass
+    if not summary.strip():
+        # Codex contributes no memory fragment when the initial-context read is empty.
+        return ""
     template = (Path(__file__).parent / "prompts/read_path_v2.md").read_text(encoding="utf-8")
     template = template.replace(
         "{{ base_path }}/extensions/ad_hoc/notes/",
@@ -97,39 +100,32 @@ def render(home: Path | None = None) -> str:
         "Memory generation may be paused; the files and these reading rules remain usable. "
         "If this context is compacted away, read memory_summary.md only when history is relevant.\n"
     )
-    if not summary:
-        extra += "No published summary is available yet; do not invent past context.\n"
     return text + extra
 
 
 def injection_for(session_id: str, home: Path | None = None) -> str:
     home = home or memory_home()
-    text = render(home)
-    if not text:
+    if not load_reader_config(home).enabled:
         return ""
     state_path = home / "injections" / f"{digest(session_id)}.json"
-    try:
-        summary_path = published_root(home) / "memory_summary.md"
-    except (OSError, ValueError, UnsafePathError):
-        summary_path = home / "memories_v2/memory_summary.md"
-    has_summary = summary_path.is_file()
-    fingerprint = digest(text)
     try:
         state = read_json(state_path, 4096)
     except (OSError, ValueError):
         state = {}
-    if isinstance(state, dict) and state.get("injected"):
-        newly_available = has_summary and not state.get("has_summary")
-        if not newly_available:
-            return ""
+    if isinstance(state, dict) and (state.get("checked") or state.get("injected")):
+        return ""
+    text = render(home)
+    try:
+        summary_path = published_root(home) / "memory_summary.md"
+    except (OSError, ValueError, UnsafePathError):
+        summary_path = home / "memories_v2/memory_summary.md"
     try:
         write_json(
             state_path,
             {
-                "injected": True,
-                "has_summary": has_summary,
-                "fingerprint": fingerprint,
-                "generation": summary_path.parent.name,
+                "checked": True,
+                "injected": bool(text),
+                "generation": summary_path.parent.name if text else None,
                 "time": time.time(),
             },
         )

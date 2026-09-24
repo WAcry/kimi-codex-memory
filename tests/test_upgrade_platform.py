@@ -118,6 +118,14 @@ def test_frozen_worker_restarts_own_binary_not_python_module(monkeypatch):
     assert worker_command() == [sys.executable, "worker", "--drain"]
 
 
+def test_removed_executable_hint_uses_current_path_installation(tmp_path, monkeypatch):
+    monkeypatch.setenv("KIMI_MEMORY_HOST_EXECUTABLE", str(tmp_path / "old-install/kimi"))
+    current = tmp_path / "current-install/kimi"
+    monkeypatch.setattr("kimi_memory.platform.shutil.which", lambda name: str(current))
+    assert kimi_command() == [str(current)]
+    assert kimi_command((str(tmp_path / "explicit-kimi"),)) == [str(tmp_path / "explicit-kimi")]
+
+
 def test_process_liveness_does_not_signal_or_terminate_current_process():
     assert process_alive(os.getpid())
     assert not process_alive(0)

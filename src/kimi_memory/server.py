@@ -55,25 +55,6 @@ class ServerManager:
         except OSError as exc:
             raise TransportError("Kimi server token file is unavailable") from exc
 
-    def installed_version(self) -> str | None:
-        try:
-            command = kimi_command(self.config.kimi_command)
-            result = subprocess.run(
-                [*command, "--version"],
-                capture_output=True,
-                timeout=10,
-                check=True,
-                text=True,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return None
-        import re
-
-        match = re.search(r"(?<![\w.])\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?", result.stdout[:4096])
-        if match is None:
-            raise ConfigurationError("The configured Kimi command did not report a product version")
-        return match.group()
-
     def _connect(self, origin: str, expected_id: str | None = None) -> KimiClient:
         client = KimiClient(origin, self.token, self.config)
         client.handshake(expected_id)
@@ -104,7 +85,6 @@ class ServerManager:
             self.client = self._connect(self.config.server_url)
             self.borrowed = True
             return self.client
-        desired = self.installed_version()
         rejected = False
         for item in live_instances(self.home):
             try:
@@ -158,10 +138,6 @@ class ServerManager:
                         continue
                     try:
                         client = self._connect_instance(item)
-                        if desired and client.server_version != desired:
-                            raise CompatibilityError(
-                                "Kimi installation changed while starting the helper"
-                            )
                         self.client = client
                         return client
                     except TransportError:

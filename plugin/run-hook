@@ -1,0 +1,4 @@
+#!/bin/sh
+# Set the opt-out before Kimi's process entry, not after its staged-update check.
+export KIMI_CODE_NO_AUTO_UPDATE=1
+exec kimi __plugin_run_node plugin/launch.mjs "$@"

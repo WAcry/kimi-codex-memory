@@ -44,14 +44,16 @@
 
 ## hooks 与注入
 
-当前 SessionStart hook 的 stdout 不进入模型。实现通过 SessionStart 重置
-本地注入状态，在 UserPromptSubmit 注入完整规则与摘要。插件 system prompt
-保存稳定规则，并指明读取功能不依赖后台健康状态。
+当前 SessionStart hook 的 stdout 不进入模型。实现于 UserPromptSubmit
+首次检查并注入完整规则与可用摘要；即使没有摘要，也完成本上下文的检查。
+普通 SessionStart/resume 不重置标记，以保留已记录的上下文。插件 system
+prompt 保存稳定规则，并指明读取功能不依赖后台健康状态。
 
-SessionStart/PostCompact 只触发重新注入标记；PostCompact 的输出也不会直接
+PostCompact 触发重新注入标记；其输出不会直接
 进入下一模型步骤。一次 turn 内自动压缩后，稳定系统规则要求 agent 在需要
 历史时读取本地摘要；下一次用户输入再自动补回。不声称与 Codex 的上下文优先级
 和生命周期逐事件完全一致。
+Codex 的对应调用链、首次生成与普通 resume 不推送的证据见 DESIGN 06。
 
 hook 通知仅保存 event、session ID 和时间。UserPromptSubmit 的大正文、普通
 assistant 输出、图片字节都不写第二份。hook 内部设置 INTERNAL 标记跳过

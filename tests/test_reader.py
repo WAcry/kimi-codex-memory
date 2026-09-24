@@ -44,21 +44,73 @@ raise SystemExit(main(['render']))
     assert "Previously published" in result.stdout
 
 
-def test_inject_once_and_restore_on_resume_and_compaction(home):
+def test_compaction_rebuilds_but_normal_resume_keeps_recorded_context(home):
     seed_published(home)
     payload = {"hook_event_name": "UserPromptSubmit", "session_id": "s1"}
     assert handle(payload, home).get("message")
     assert handle(payload, home) == {}
+    seed_published(home, "New summary for the next context window.")
+    handle({**payload, "hook_event_name": "SessionStart", "source": "resume"}, home, spawn=False)
+    assert handle(payload, home) == {}
     handle({**payload, "hook_event_name": "PostCompact"}, home)
+    assert "New summary" in handle(payload, home)["message"]
+    assert handle(payload, home) == {}
+
+
+def test_resume_after_compaction_preserves_pending_context_rebuild(home):
+    seed_published(home)
+    payload = {"hook_event_name": "UserPromptSubmit", "session_id": "s1"}
     assert handle(payload, home).get("message")
+    handle({**payload, "hook_event_name": "PostCompact"}, home)
     handle({**payload, "hook_event_name": "SessionStart", "source": "resume"}, home, spawn=False)
     assert handle(payload, home).get("message")
+    assert handle(payload, home) == {}
 
 
-def test_no_summary_is_not_fabricated_and_first_summary_can_arrive_later(home):
-    assert "No published summary" in injection_for("s1", home)
+def test_first_publication_does_not_inject_into_an_existing_context(home):
+    assert injection_for("s1", home) == ""
     seed_published(home)
+    assert injection_for("s1", home) == ""
+    handle(
+        {"hook_event_name": "SessionStart", "session_id": "s1", "source": "resume"},
+        home,
+        spawn=False,
+    )
+    assert injection_for("s1", home) == ""
+    assert "Previously published" in injection_for("s2", home)
+    # First-time memory is allowed at a real full-context rebuild, not because it appeared.
+    handle({"hook_event_name": "PostCompact", "session_id": "s1"}, home)
     assert "Previously published" in injection_for("s1", home)
+
+
+def test_empty_summary_is_checked_once_without_an_empty_memory_prompt(home):
+    directory = seed_published(home)
+    atomic_write(directory / "memory_summary.md", " \n\t")
+    assert render(home) == ""
+    assert injection_for("s1", home) == ""
+    atomic_write(directory / "memory_summary.md", valid_summary("Generated later"))
+    assert injection_for("s1", home) == ""
+
+
+def test_regular_turn_does_not_reread_published_memory(home, monkeypatch):
+    seed_published(home)
+    assert injection_for("s1", home)
+
+    def forbidden(*_, **__):
+        raise AssertionError("Steady-state context must not reload memory")
+
+    monkeypatch.setattr("kimi_memory.reader.render", forbidden)
+    assert injection_for("s1", home) == ""
+
+
+def test_previous_release_injection_receipt_is_not_replayed_on_upgrade(home):
+    from kimi_memory.files import digest, write_json
+
+    seed_published(home)
+    write_json(
+        home / "injections" / f"{digest('s1')}.json", {"injected": True, "has_summary": False}
+    )
+    assert injection_for("s1", home) == ""
 
 
 def test_local_disable_is_independent(home):
@@ -163,6 +215,46 @@ def test_generated_plugin_runs_with_spaces_in_paths(home):
     )
     assert result.returncode == 0
     assert "Previously published" in json.loads(result.stdout)["message"]
+
+
+def test_hook_opt_out_is_set_before_kimi_entry_without_changing_parent(home, monkeypatch):
+    output = home / "plugin with spaces"
+    build_plugin(home, output)
+    fake_bin = home / "fake-bin"
+    entry = fake_bin / "entry.py"
+    atomic_write(
+        entry,
+        "import json, os, sys\nprint(json.dumps({'flag': os.environ.get('KIMI_CODE_NO_AUTO_UPDATE'), 'args': sys.argv[1:]}))\n",
+    )
+    if os.name == "nt":
+        atomic_write(fake_bin / "kimi.cmd", f'@"{sys.executable}" "{entry}" %*\n')
+    else:
+        import shlex
+
+        atomic_write(
+            fake_bin / "kimi",
+            f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(entry))} "$@"\n',
+            mode=0o700,
+        )
+    monkeypatch.setenv("KIMI_CODE_NO_AUTO_UPDATE", "0")
+    manifest = json.loads((output / "kimi.plugin.json").read_text())
+    command = manifest["hooks"][0]["command"]
+    result = subprocess.run(
+        command,
+        cwd=output,
+        shell=True,
+        input="{}",
+        env={**os.environ, "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", "")},
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=True,
+    )
+    assert json.loads(result.stdout) == {
+        "flag": "1",
+        "args": ["__plugin_run_node", "plugin/launch.mjs", "hook"],
+    }
+    assert os.environ["KIMI_CODE_NO_AUTO_UPDATE"] == "0"
 
 
 def test_internal_worker_sessions_do_not_recurse(home, monkeypatch):
