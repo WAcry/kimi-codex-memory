@@ -119,7 +119,11 @@ def kimi_command(configured: tuple[str, ...] = ()) -> list[str]:
     return [str(path), *command[1:]]
 
 
-def worker_command() -> list[str]:
+def runtime_command(*args: str) -> list[str]:
     if getattr(sys, "frozen", False):
-        return [sys.executable, "worker", "--drain"]
-    return [sys.executable, "-m", "kimi_memory", "worker", "--drain"]
+        return [sys.executable, *args]
+    return [sys.executable, "-m", "kimi_memory", *args]
+
+
+def worker_command() -> list[str]:
+    return runtime_command("worker", "--drain")

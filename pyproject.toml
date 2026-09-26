@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kimi-codex-memory"
-version = "1.1.0"
+version = "1.2.0"
 description = "An external, failure-isolated Codex memory-v2 pipeline for Kimi Code"
 requires-python = ">=3.11"
 license = "Apache-2.0"

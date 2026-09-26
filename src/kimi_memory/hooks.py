@@ -85,10 +85,38 @@ def handle(payload: dict, home: Path | None = None, *, spawn: bool = True) -> di
         touch_injection(session_id, home)
     if event == "TurnStarted":
         acknowledge_injection(session_id, payload, home)
+        try:
+            from .update_notices import acknowledge_notice
+
+            acknowledge_notice(session_id, payload, home)
+        except Exception:
+            pass  # A notification is never a prerequisite for memory or the user turn.
     if event == "UserPromptSubmit":
         # This path never even loads generation config, database, or API compatibility state.
         message = injection_for(session_id, home, prompt=payload.get("prompt"))
+        try:
+            from .update_notices import prepare_notice
+
+            notice = prepare_notice(session_id, payload.get("prompt"), home)
+            if notice:
+                message = notice + ("\n\n---\n\n" + message if message else "")
+        except Exception:
+            pass  # Preserve an already prepared memory prompt even if notices fail.
         return {"message": message} if message else {}
+    if event in {"PostCompact", "SessionEnd"}:
+        try:
+            from .update_notices import release_notice
+
+            release_notice(session_id, home)
+        except Exception:
+            pass
+    if spawn and event in {"SessionStart", "Stop", "SessionEnd"}:
+        try:
+            from .update_notices import schedule_check
+
+            schedule_check(home)
+        except Exception:
+            pass
     if event in WAKE_EVENTS:
         try:
             enqueue(payload, home)

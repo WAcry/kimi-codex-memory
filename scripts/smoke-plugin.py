@@ -167,6 +167,57 @@ def main():
         )
         assert run(hook, input=payload, shell=True) == ""
         assert json.loads(run([str(binary), "status"]))["summary_available"]
+        # Cached release notices use the frozen local reader, not the broken host
+        # or a network check; the already accepted memory is not injected again.
+        updates = home / "updates"
+        updates.mkdir(exist_ok=True)
+        (updates / "cache.json").write_text(
+            json.dumps(
+                {
+                    "format": 1,
+                    "state": "ready",
+                    "attempted_at": time.time(),
+                    "checked_at": time.time(),
+                    "latest": "9.8.7",
+                }
+            ),
+            encoding="utf-8",
+        )
+        notice = json.loads(run(hook, input=payload, shell=True))["message"]
+        assert "Kimi Codex Memory update available" in notice
+        assert "Version 9.8.7" in notice and "MEMORY_SUMMARY" not in notice
+        assert (
+            run(
+                hook,
+                input=json.dumps(
+                    {
+                        "hook_event_name": "TurnStarted",
+                        "session_id": "smoke-session",
+                        "origin_kind": "user",
+                        "turn_id": 2,
+                        "prompt": "",
+                    }
+                ),
+                shell=True,
+            )
+            == ""
+        )
+        assert run(hook, input=payload, shell=True) == ""
+        new_session = json.loads(
+            run(
+                hook,
+                input=json.dumps(
+                    {
+                        "hook_event_name": "UserPromptSubmit",
+                        "session_id": "after-notice",
+                    }
+                ),
+                shell=True,
+            )
+        )["message"]
+        assert "Synthetic preserved memory" in new_session and "update available" not in new_session
+        (home / "updates.toml").write_text("enabled = false\n", encoding="utf-8")
+        assert json.loads(run([str(binary), "check-updates"])) == {"state": "disabled"}
         assert not marker.exists(), "Offline reader invoked Kimi or Node"
         env["PATH"] = host_path
         # Exercise the frozen writer against an empty native Kimi home; no LLM is called.
@@ -182,6 +233,7 @@ def main():
             "[generation]\nenabled = false\n", encoding="utf-8"
         )
         env["KIMI_MEMORY_HOME"] = str(background_home)
+        (background_home / "updates.toml").write_text("enabled = false\n", encoding="utf-8")
         env.pop("KIMI_MEMORY_NO_AUTOSTART")
         assert (
             run(
@@ -199,7 +251,7 @@ def main():
             time.sleep(0.1)
         assert json.loads(status.read_text(encoding="utf-8"))["state"] == "disabled"
         print(
-            "PASS native plugin installation, relocated runtime, first-note guidance, offline injection, snapshot, failure isolation, frozen worker"
+            "PASS native plugin installation, relocated runtime, first-note guidance, offline injection, cached release notices, snapshot, failure isolation, frozen worker"
         )
 
 

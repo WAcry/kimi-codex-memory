@@ -25,6 +25,12 @@ manifest 不声明 systemPrompt、systemPromptPath、sessionStart.skill 或
 skillInstructions，避免静态/动态内容重复，也不依赖自定义 profile 是否
 包含 plugin_sections。无操作时 stdout 必须为空，不能输出 JSON 空对象。
 
+原生更新卡片是独立的可选运维路径：SessionStart/Stop/SessionEnd 用
+本地节流安排自带 runtime 的短命 check-updates 进程，仅该进程读取
+公开 Release 元数据。UserPromptSubmit 只读取缓存，在已获授权的新
+版本提醒需要显示时与记忆消息合并；不会因此重新注入记忆。通知状态
+独立于数据库、生成配置、快照和记忆投递状态，详见 DESIGN 13。
+
 Python 3.11+ 标准库覆盖 TOML、SQLite、HTTP、子进程、文件和 JSON。发布包
 自带 Python 运行环境；终端用户不需要 Python 或 pip。Windows 使用 msvcrt
 锁、进程树回收与原子文件替换，不依赖 POSIX 权限位或符号链接。

@@ -1,3 +1,16 @@
+# 1.2.0
+
+- Show a native Kimi hook card when a newer stable plugin release is available,
+  with the exact manual installation command. No automatic installs or Kimi upgrades.
+- Check only public release metadata in a short-lived background process, at most
+  once per 24 hours. Foreground hooks read local cache only; failures stay quiet.
+- Deduplicate each announced version across sessions after a matched accepted turn;
+  another hook blocking the input does not permanently consume the notice.
+- Add optional updates.toml with enabled=false to disable both checks and notices,
+  independently of memory reading and generation. No user or model credentials sent.
+- Native hook cards also enter user-message context; no model-generated reminder
+  or extra model request is needed. Existing memory prompts and data formats stay unchanged.
+
 # 1.1.0
 
 - Publish memory artifacts without temporary diffs, Git objects or reflogs;

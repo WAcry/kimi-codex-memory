@@ -256,6 +256,10 @@ def main(argv: list[str] | None = None) -> int:
     note.add_argument("text", nargs="?", help="Request text; omit to read stdin")
     note.add_argument("--no-wake", action="store_true")
     sub.add_parser("update", help="Show the native plugin upgrade command; never upgrades Kimi")
+    sub.add_parser(
+        "check-updates",
+        help="Check public plugin release metadata at most daily; never install updates or call a model",
+    )
     args = parser.parse_args(argv)
     home = args.home.expanduser().resolve() if args.home else memory_home()
     if args.home:
@@ -265,6 +269,11 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 "/plugins marketplace https://raw.githubusercontent.com/WAcry/kimi-codex-memory/main/marketplace.json"
             )
+            return 0
+        if args.command == "check-updates":
+            from .release_check import check_updates
+
+            print(json.dumps(check_updates(home), ensure_ascii=False))
             return 0
         if args.command == "hook":
             from .hooks import main as hook_main
