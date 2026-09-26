@@ -1,0 +1,37 @@
+name: Host upstream compatibility (no publishing)
+
+on:
+  schedule:
+    - cron: '23 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  latest-host:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: '1'
+      KIMI_CODE_NO_AUTO_UPDATE: '1'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9
+      - run: uv sync --locked --group dev --default-index https://pypi.org/simple
+      - name: Record upstream changes for the maintenance agent
+        run: uv run --no-sync python scripts/check-host-upstream.py
+      - name: Install latest stable host into the isolated CI directory
+        run: uv run --no-sync python scripts/install-test-kimi.py linux-x64 --version latest
+      - name: Exercise actual host contracts (only local scripted models)
+        run: uv run --no-sync python -m pytest -q tests/test_native_prompts.py tests/test_server.py tests/test_api.py tests/test_oauth.py tests/test_native_requester.py tests/test_native_submission.py tests/test_delivery_lifecycle.py tests/test_retry_recovery.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: host-upstream-report
+          path: host-upstream-report.json
+          if-no-files-found: warn

@@ -12,7 +12,7 @@ from . import __version__
 from .errors import BusyError
 from .files import digest, file_lock, memory_home, private_dir, read_json, write_json
 from .platform import process_options, worker_command
-from .reader import injection_for, reset_injection
+from .reader import acknowledge_injection, injection_for, reset_injection, touch_injection
 
 WAKE_EVENTS = {"SessionStart", "TurnStarted", "Stop", "SessionEnd", "Interrupt", "StopFailure"}
 
@@ -81,9 +81,13 @@ def handle(payload: dict, home: Path | None = None, *, spawn: bool = True) -> di
     # A normal resume reuses recorded context; only compaction rebuilds the boundary.
     if event == "PostCompact":
         reset_injection(session_id, home)
+    if event == "SessionStart":
+        touch_injection(session_id, home)
+    if event == "TurnStarted":
+        acknowledge_injection(session_id, payload, home)
     if event == "UserPromptSubmit":
         # This path never even loads generation config, database, or API compatibility state.
-        message = injection_for(session_id, home)
+        message = injection_for(session_id, home, prompt=payload.get("prompt"))
         return {"message": message} if message else {}
     if event in WAKE_EVENTS:
         try:

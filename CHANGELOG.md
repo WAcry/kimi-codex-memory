@@ -1,3 +1,24 @@
+# 1.1.0
+
+- Publish memory artifacts without temporary diffs, Git objects or reflogs;
+  clean old processing files from the current publication without model calls.
+- Retry a prepared injection when another hook blocked its prompt. Correlate
+  acceptance with the matching user turn after Kimi's gate; do not claim
+  exactly-once delivery. Preserve ordinary continuation deduplication.
+- Bind rendering and snapshot pins to one locked selection, refresh active pins,
+  and rebuild context when a long-idle session's old snapshot has been retired.
+- Defer external budget, network, authentication and provider failures without
+  consuming permanent source attempts. Changed model configuration re-enables
+  failed sources; add explicit retry/list commands without regenerating successes.
+- Launch the offline reader directly from the bundled native executable, without
+  invoking Kimi's internal Node command. Model bridges remain independently isolated.
+- Use independent plugin versions with a Kimi 2.1.0 minimum and unified 2.1.1
+  source/testing baseline. Add minimum-host release checks and a weekly read-only
+  latest-host compatibility report for maintainers; never upgrade user Kimi.
+
+Existing memory/configuration/database formats remain supported. Old releases
+are not overwritten, and no migration or full-history regeneration is required.
+
 # 1.0.5
 
 - Accept the last valid submit_memory_extraction call instead of rejecting an

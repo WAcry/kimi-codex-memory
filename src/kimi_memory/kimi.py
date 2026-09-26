@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from .compatibility import check_host_version
 from .config import ApiConfig
 from .errors import CompatibilityError, IncompleteHistoryError, MissingSessionError, TransportError
 from .files import digest
@@ -146,6 +147,7 @@ class KimiClient:
         data = obj(self.get("/api/v1/meta"), "meta")
         self.server_id = string(data.get("server_id"), "server id")
         self.server_version = string(data.get("server_version"), "server version")
+        check_host_version(self.server_version)
         self.started_at = timestamp(data.get("started_at"))
         if expected_id and self.server_id != expected_id:
             raise CompatibilityError("API server identity differs from the previous handshake")

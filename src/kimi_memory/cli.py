@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import shlex
 import shutil
 import sys
 import time
@@ -11,7 +12,7 @@ from pathlib import Path
 
 from . import __version__
 from .errors import UnsafePathError
-from .files import atomic_write, memory_home, published_root, read_json, write_json
+from .files import atomic_write, memory_home, published_root, read_json
 
 
 def initialize(home: Path) -> dict:
@@ -43,11 +44,41 @@ def build_plugin(home: Path, output: Path) -> dict:
         ignore=shutil.ignore_patterns("__pycache__"),
     )
     project = package.parents[1]
-    if not (project / "plugin/launch.mjs").is_file():
+    if not (project / "plugin/run-hook").is_file():
         raise ValueError("Use the release plugin ZIP for installation")
     shutil.copytree(project / "plugin", output / "plugin", dirs_exist_ok=True)
     shutil.copy2(project / "kimi.plugin.json", output / "kimi.plugin.json")
-    write_json(output / "development.json", {"python": sys.executable, "home": str(home)})
+    # Developer-only scripts bind this interpreter; release launchers select the
+    # bundled native executable directly and never need Python/Node on PATH.
+    atomic_write(
+        output / "plugin/run-hook",
+        (
+            "#!/bin/sh\nexport KIMI_CODE_NO_AUTO_UPDATE=1 PYTHONUTF8=1\n"
+            'root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)\n'
+            'export PYTHONPATH="$root/python"\n'
+            "export KIMI_MEMORY_HOME="
+            + shlex.quote(str(home))
+            + "\n"
+            + shlex.quote(sys.executable)
+            + ' -m kimi_memory "$@"\n'
+            'status=$?\n[ "$1" = hook ] && exit 0\nexit "$status"\n'
+        ),
+        mode=0o700,
+    )
+
+    def batch_literal(value):
+        return str(value).replace("%", "%%")
+
+    atomic_write(
+        output / "plugin/run-hook.cmd",
+        (
+            '@echo off\nsetlocal\nset "KIMI_CODE_NO_AUTO_UPDATE=1"\nset "PYTHONUTF8=1"\n'
+            'set "PYTHONPATH=%~dp0..\\python"\n'
+            'set "KIMI_MEMORY_HOME=' + batch_literal(home) + '"\n'
+            '"' + batch_literal(sys.executable) + '" -m kimi_memory %*\n'
+            'if "%~1"=="hook" exit /b 0\nexit /b %errorlevel%\n'
+        ),
+    )
     return {"plugin": str(output), "install_command": "/plugins install " + str(output)}
 
 
@@ -74,12 +105,14 @@ def local_status(home: Path) -> dict:
 
 
 def doctor(home: Path, *, probe: bool = False) -> dict:
+    from .compatibility import host_support
     from .config import load_worker_config
     from .errors import MemoryErrorBase
     from .models import Model
     from .server import ServerManager
 
     result = local_status(home)
+    result["host_support"] = host_support()
     result["git_available"] = shutil.which("git") is not None
     try:
         config = load_worker_config(home)
@@ -157,6 +190,28 @@ def run_worker_command(home: Path, *, drain: bool) -> dict:
         signal.signal(signal.SIGTERM, previous)
 
 
+def retry_sources(home: Path, *, source_id: str | None = None, list_only: bool = False) -> dict:
+    from .config import load_worker_config
+    from .files import file_lock
+    from .store import Store
+
+    with file_lock(home / "worker.lock"):
+        store = Store(home / "state.sqlite")
+        try:
+            if list_only:
+                return {"failed_sources": store.failed_sources()}
+            count = store.retry_failed(
+                attempts=load_worker_config(home).generation.max_extraction_attempts,
+                source_id=source_id,
+            )
+            return {
+                "reset": count,
+                "message": "Failed sources may retry on the next worker run; normal eligibility and budgets still apply.",
+            }
+        finally:
+            store.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="kimi-codex-memory", description="Local memory for Kimi Code"
@@ -169,6 +224,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub.add_parser("render", help="Render prompt and last published summary entirely offline")
     sub.add_parser("hook", help="Read a Kimi hook JSON payload on stdin; always fail open")
+    retry = sub.add_parser(
+        "retry",
+        help="Reset failed extraction attempts; does not call models or alter successful memories",
+    )
+    retry.add_argument("--source", help="Only reset this source session ID")
+    retry.add_argument(
+        "--list", action="store_true", help="List failed/deferred sources without resetting"
+    )
     status = sub.add_parser("status", help="Show local status without connecting to Kimi")
     status.add_argument("--json", action="store_true")
     diag = sub.add_parser(
@@ -218,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
             result = build_plugin(home, (args.output or home / "plugin").expanduser().resolve())
         elif args.command == "status":
             result = local_status(home)
+        elif args.command == "retry":
+            result = retry_sources(home, source_id=args.source, list_only=args.list)
         elif args.command == "doctor":
             result = doctor(home, probe=args.probe)
         elif args.command == "note":

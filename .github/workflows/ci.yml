@@ -72,9 +72,26 @@ jobs:
           compression-level: 0
           if-no-files-found: error
 
+  minimum-host:
+    name: Verify minimum supported Kimi
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: '1'
+      KIMI_CODE_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9
+      - run: uv sync --locked --group dev --default-index https://pypi.org/simple
+      - run: uv run --no-sync python scripts/install-test-kimi.py linux-x64 --version minimum
+      - run: uv run --no-sync python -m pytest -q tests/test_native_prompts.py tests/test_server.py tests/test_api.py tests/test_oauth.py tests/test_native_requester.py tests/test_native_submission.py tests/test_delivery_lifecycle.py tests/test_retry_recovery.py
+
   assemble:
     name: Assemble universal plugin
-    needs: platform
+    needs: [platform, minimum-host]
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:

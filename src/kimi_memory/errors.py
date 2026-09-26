@@ -32,6 +32,11 @@ class ModelError(MemoryErrorBase):
     code = "model_error"
 
 
+class BudgetError(ModelError):
+    code = "model_budget_exhausted"
+    retry_at: float | None = None
+
+
 class ExtractionOutputError(ModelError):
     code = "invalid_extraction_output"
 

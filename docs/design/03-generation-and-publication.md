@@ -68,9 +68,9 @@ read_file、list_files、write_summary；先读 diff，唯一可写产物是 mem
 
 ## 发布与恢复
 
-1. 完成临时工作区，校验和脱敏，更新内部单提交基线，写 manifest。
-2. 将工作区移入独立 generation 目录。
-3. 在 SQLite 写入待发布意图，包含准确的来源内容版本。
+1. 完成临时工作区，校验和脱敏，删除临时 diff 与全部 .git，写 manifest。
+2. 在 SQLite 写入待发布意图，包含准确的来源内容版本。
+3. 在与 reader/GC 共用的短文件锁中，将工作区移入独立 generation。
 4. 在短事务中再次核对 owner，只执行原子 current.json 文件替换。
 5. 更新精确来源快照的 selected 标记、成功状态，并清除发布意图。
 
@@ -92,6 +92,7 @@ TTL 清理等待下一次同步；不淘汰来源的合并继续。局部扫描�
 notes 不到期；只有规定的 extensions/<extension>/resources/ 文件依据文件名
 时间执行到期移除。成功发布后才删除未被并发修改的过期 resource。
 
-daily/run model-call budget 在发请求前预留；网络失败仍消耗一次预算，不是
-货币成本计量。失败的队列通知不被确认删除；静默退避后在下一次唤醒重试。
+daily/run model-call budget 在发请求前预留；网络失败仍消耗一次调用预算，
+但不消耗来源的永久失败次数；调用预算不是货币成本计量。失败通知保留并
+静默退避，认证/模型配置修复和有效模型指纹改变后的恢复见 DESIGN 11。
 手工 worker 命令可以直接重试。唤醒合并避免每个 hook 都启动一个竞争进程。

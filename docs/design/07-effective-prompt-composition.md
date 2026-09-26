@@ -25,12 +25,13 @@ Kimi 的四条独立链路（下面路径相对 packages/agent-core-v2/src）：
 启用 Memory 插件（无静态 systemPrompt，也没有 Skill 内容注入）
   SessionStart ───→ 后台通知，不输出 prompt
   UserPromptSubmit ───→ 离线检查本上下文的 receipt
-      已检查 / reader 关闭 ───→ stdout 为空
+      已确认接纳且快照仍存在 / reader 关闭 ───→ stdout 为空
       首次无可用摘要 ───→ 仅显式 notes 写入指引（ADR 0009）
       首次有摘要 ───→ 一份完整 read_path_v2 + 路径 + 摘要
           Kimi 包成 UserPromptSubmit 的 hook_result
           作为用户角色的 hook_result 来源消息加入模型上下文
   PostCompact ───→ 清除 receipt，下一用户输入重建
+  匹配的用户 TurnStarted ───→ 在已核实的 prompt gate 之后标记接纳
 ```
 
 没有去检测或猜测静态系统模板是否被加载，不依赖 API 才能渲染。Kimi

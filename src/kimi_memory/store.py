@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import __version__
 from .citations import CitationUse
-from .errors import ConfigurationError, LeaseLostError, ModelError
+from .errors import BudgetError, ConfigurationError, LeaseLostError
 from .files import private_dir
 from .kimi import Source
 
@@ -158,12 +158,21 @@ class Store:
                 (now + lease, key, owner),
             )
 
-    def fail(self, key: str, owner: str, *, now: float, delay: int, code: str) -> None:
+    def fail(
+        self,
+        key: str,
+        owner: str,
+        *,
+        now: float,
+        delay: int,
+        code: str,
+        consume_attempt: bool = True,
+    ) -> None:
         with self.transaction() as db:
             db.execute(
                 """UPDATE jobs SET owner=NULL,lease_until=0,retry_after=?,
-                attempts_left=MAX(0,attempts_left-1),error_code=? WHERE job_key=? AND owner=?""",
-                (now + delay, code, key, owner),
+                attempts_left=MAX(0,attempts_left-?),error_code=? WHERE job_key=? AND owner=?""",
+                (now + delay, int(consume_attempt), code, key, owner),
             )
 
     def save_extraction(
@@ -236,7 +245,7 @@ class Store:
         return True
 
     def prepare_extraction_requester(self, revision: str, attempts: int) -> None:
-        """New requester code gets one fresh retry budget; successful sources stay put."""
+        """Changed requester or resolved model gets one retry budget; successes stay put."""
         with self.transaction() as db:
             old = db.execute(
                 "SELECT value FROM runtime_metadata WHERE key='extraction_requester'"
@@ -253,6 +262,29 @@ class Store:
                 "INSERT OR REPLACE INTO runtime_metadata VALUES ('extraction_requester',?)",
                 (revision,),
             )
+
+    def retry_failed(self, *, attempts: int, source_id: str | None = None) -> int:
+        with self.transaction() as db:
+            return db.execute(
+                """UPDATE jobs SET attempts_left=?,retry_after=0,error_code=NULL
+                WHERE job_key LIKE 'extract:%' AND owner IS NULL AND error_code IS NOT NULL
+                AND (success_version IS NULL OR success_version<>source_version)
+                AND (? IS NULL OR job_key=?)""",
+                (attempts, source_id, "extract:" + source_id if source_id is not None else None),
+            ).rowcount
+
+    def failed_sources(self, *, limit: int = 100) -> list[dict]:
+        with self.lock:
+            return [
+                dict(row)
+                for row in self.db.execute(
+                    """SELECT substr(job_key,9) AS session_id,error_code,attempts_left,retry_after
+                FROM jobs WHERE job_key LIKE 'extract:%' AND error_code IS NOT NULL
+                AND (success_version IS NULL OR success_version<>source_version)
+                ORDER BY attempts_left,retry_after LIMIT ?""",
+                    (limit,),
+                )
+            ]
 
     def scanned(self, source: Source, version: str, now: float) -> None:
         with self.transaction() as db:
@@ -312,7 +344,9 @@ class Store:
             db.execute("INSERT OR IGNORE INTO counters VALUES(?,0)", (day,))
             count = db.execute("SELECT model_calls FROM counters WHERE day=?", (day,)).fetchone()[0]
             if count >= daily_limit:
-                raise ModelError("Daily model-call budget reached")
+                error = BudgetError("Daily model-call budget reached")
+                error.retry_at = (int(now) // 86400 + 1) * 86400
+                raise error
             db.execute("UPDATE counters SET model_calls=model_calls+1 WHERE day=?", (day,))
 
     def publication_intent(self, generation: str, owner: str, manifest: dict, now: float) -> None:
@@ -377,6 +411,12 @@ class Store:
                 ).fetchone()[0],
                 "running_jobs": self.db.execute(
                     "SELECT COUNT(*) FROM jobs WHERE owner IS NOT NULL"
+                ).fetchone()[0],
+                "failed_extractions": self.db.execute(
+                    "SELECT COUNT(*) FROM jobs WHERE job_key LIKE 'extract:%' AND error_code IS NOT NULL AND attempts_left<=0"
+                ).fetchone()[0],
+                "deferred_extractions": self.db.execute(
+                    "SELECT COUNT(*) FROM jobs WHERE job_key LIKE 'extract:%' AND error_code IS NOT NULL AND attempts_left>0"
                 ).fetchone()[0],
             }
 

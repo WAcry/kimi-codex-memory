@@ -2,7 +2,9 @@
 
 import json
 import os
+import shlex
 import subprocess
+import sys
 import threading
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -326,3 +328,71 @@ def test_native_first_remember_request_can_write_a_note_without_summary(
     assert "MEMORY_SUMMARY" not in json.dumps(requests[0])
     assert "Use pnpm for this example project." in note_path.read_text(encoding="utf-8")
     assert not (home / "current.json").exists()
+
+
+@pytest.mark.parametrize("with_summary", [False, True])
+def test_native_other_hook_blocks_first_input_without_losing_memory_on_resume(
+    tmp_path, home, monkeypatch, with_summary
+):
+    binary = isolate_host(tmp_path, monkeypatch)
+    native_home, workspace = tmp_path / "kimi", tmp_path / "workspace"
+    workspace.mkdir()
+    if with_summary:
+        seed_published(home, "BLOCK_RETRY_MEMORY")
+    memory_plugin, blocker = tmp_path / "memory-plugin", tmp_path / "blocker-plugin"
+    build_plugin(home, memory_plugin)
+    script = blocker / "block-once.py"
+    atomic_write(
+        script,
+        (
+            "import sys\nfrom pathlib import Path\n"
+            "marker=Path(__file__).with_name('blocked-once')\n"
+            "if not marker.exists():\n marker.touch()\n print('Synthetic first input blocked',file=sys.stderr)\n raise SystemExit(2)\n"
+        ),
+    )
+    command = (
+        subprocess.list2cmdline([sys.executable, str(script)])
+        if os.name == "nt"
+        else shlex.join([sys.executable, str(script)])
+    )
+    write_json(
+        blocker / "kimi.plugin.json",
+        {
+            "name": "block-first-input",
+            "version": "1.0.0",
+            "hooks": [{"event": "UserPromptSubmit", "command": command}],
+        },
+    )
+    with scripted_model() as (origin, requests):
+        configure_model(native_home, origin)
+        install_plugins(binary, native_home, [memory_plugin, blocker])
+        blocked = subprocess.run(
+            [
+                str(binary),
+                "--output-format",
+                "stream-json",
+                "-p",
+                "First request blocked by an independent hook",
+            ],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=45,
+        )
+        assert blocked.returncode in {0, 1} and "Synthetic first input blocked" in blocked.stdout
+        assert len(requests) == 0
+        receipts = [json.loads(p.read_text()) for p in (home / "injections").glob("*.json")]
+        assert (
+            len(receipts) == 1 and receipts[0]["phase"] == "prepared" and not receipts[0]["checked"]
+        )
+        invoke(binary, workspace, "Second request accepted", extra=("--continue",))
+        assert len(requests) == 1
+        text = json.dumps(requests[0])
+        assert ("BLOCK_RETRY_MEMORY" if with_summary else "## Memory notes") in text
+        receipts = [json.loads(p.read_text()) for p in (home / "injections").glob("*.json")]
+        assert receipts[0]["phase"] == "committed" and receipts[0]["checked"]
+        invoke(binary, workspace, "Third ordinary continuation", extra=("--continue",))
+        assert len(requests) == 2
+        marker = "Use the injected MEMORY_SUMMARY" if with_summary else "## Memory notes"
+        assert json.dumps(requests[-1]).count(marker) == 1

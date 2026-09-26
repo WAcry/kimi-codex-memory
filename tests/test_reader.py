@@ -10,7 +10,11 @@ from conftest import seed_published, valid_summary
 from kimi_memory.cli import build_plugin, local_status
 from kimi_memory.files import atomic_write
 from kimi_memory.hooks import handle
-from kimi_memory.reader import injection_for, render
+from kimi_memory.reader import acknowledge_injection, injection_for, render
+
+
+def accepted(session_id, home):
+    acknowledge_injection(session_id, {"origin_kind": "user", "turn_id": 1, "prompt": ""}, home)
 
 
 def test_reader_survives_broken_worker_config_database_and_status(home):
@@ -48,12 +52,14 @@ def test_compaction_rebuilds_but_normal_resume_keeps_recorded_context(home):
     seed_published(home)
     payload = {"hook_event_name": "UserPromptSubmit", "session_id": "s1"}
     assert handle(payload, home).get("message")
+    accepted("s1", home)
     assert handle(payload, home) == {}
     seed_published(home, "New summary for the next context window.")
     handle({**payload, "hook_event_name": "SessionStart", "source": "resume"}, home, spawn=False)
     assert handle(payload, home) == {}
     handle({**payload, "hook_event_name": "PostCompact"}, home)
     assert "New summary" in handle(payload, home)["message"]
+    accepted("s1", home)
     assert handle(payload, home) == {}
 
 
@@ -64,11 +70,13 @@ def test_resume_after_compaction_preserves_pending_context_rebuild(home):
     handle({**payload, "hook_event_name": "PostCompact"}, home)
     handle({**payload, "hook_event_name": "SessionStart", "source": "resume"}, home, spawn=False)
     assert handle(payload, home).get("message")
+    accepted("s1", home)
     assert handle(payload, home) == {}
 
 
 def test_first_publication_does_not_inject_into_an_existing_context(home):
     assert "## Memory notes" in injection_for("s1", home)
+    accepted("s1", home)
     seed_published(home)
     assert injection_for("s1", home) == ""
     handle(
@@ -88,6 +96,7 @@ def test_empty_summary_is_checked_once_without_an_empty_memory_prompt(home):
     atomic_write(directory / "memory_summary.md", " \n\t")
     assert "## Memory notes" in render(home)
     assert "## Memory notes" in injection_for("s1", home)
+    accepted("s1", home)
     atomic_write(directory / "memory_summary.md", valid_summary("Generated later"))
     assert injection_for("s1", home) == ""
 
@@ -95,11 +104,12 @@ def test_empty_summary_is_checked_once_without_an_empty_memory_prompt(home):
 def test_regular_turn_does_not_reread_published_memory(home, monkeypatch):
     seed_published(home)
     assert injection_for("s1", home)
+    accepted("s1", home)
 
     def forbidden(*_, **__):
         raise AssertionError("Steady-state context must not reload memory")
 
-    monkeypatch.setattr("kimi_memory.reader.render", forbidden)
+    monkeypatch.setattr("kimi_memory.reader._render_snapshot", forbidden)
     assert injection_for("s1", home) == ""
 
 
@@ -207,7 +217,7 @@ def test_generated_plugin_runs_with_spaces_in_paths(home):
     assert "Previously published" in json.loads(result.stdout)["message"]
 
 
-def test_hook_opt_out_is_set_before_kimi_entry_without_changing_parent(home, monkeypatch):
+def test_hook_never_starts_kimi_or_needs_its_node_entry(home, monkeypatch):
     output = home / "plugin with spaces"
     build_plugin(home, output)
     fake_bin = home / "fake-bin"
@@ -240,10 +250,7 @@ def test_hook_opt_out_is_set_before_kimi_entry_without_changing_parent(home, mon
         timeout=10,
         check=True,
     )
-    assert json.loads(result.stdout) == {
-        "flag": "1",
-        "args": ["__plugin_run_node", "plugin/launch.mjs", "hook"],
-    }
+    assert result.stdout == ""
     assert os.environ["KIMI_CODE_NO_AUTO_UPDATE"] == "0"
 
 
@@ -256,6 +263,7 @@ def test_internal_worker_sessions_do_not_recurse(home, monkeypatch):
 def test_published_changes_do_not_refresh_the_current_context(home):
     directory = seed_published(home)
     assert injection_for("s", home)
+    accepted("s", home)
     assert injection_for("s", home) == ""
     atomic_write(directory / "memory_summary.md", valid_summary("Changed preference"))
     assert injection_for("s", home) == ""
@@ -321,6 +329,7 @@ def test_notes_only_is_once_per_context_and_records_no_publication(home):
     payload = {"hook_event_name": "UserPromptSubmit", "session_id": "first-context"}
     handle({**payload, "hook_event_name": "SessionStart"}, home, spawn=False)
     assert "## Memory notes" in handle(payload, home)["message"]
+    accepted("first-context", home)
     assert handle(payload, home) == {}
     handle({**payload, "hook_event_name": "SessionStart", "source": "resume"}, home, spawn=False)
     assert handle(payload, home) == {}
@@ -328,4 +337,5 @@ def test_notes_only_is_once_per_context_and_records_no_publication(home):
     assert receipt["checked"] and receipt["injected"] and receipt["generation"] is None
     handle({**payload, "hook_event_name": "PostCompact"}, home, spawn=False)
     assert "## Memory notes" in handle(payload, home)["message"]
+    accepted("first-context", home)
     assert handle(payload, home) == {}

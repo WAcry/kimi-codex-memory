@@ -1,6 +1,7 @@
 """Keep the first public format usable as future releases change implementation."""
 
 import hashlib
+import json
 import shutil
 import sqlite3
 from pathlib import Path
@@ -62,4 +63,10 @@ def test_first_public_release_data_remains_usable_without_regeneration(home):
     finally:
         store.close()
     for relative, contents in original.items():
-        assert (home / relative).read_bytes() == contents
+        actual = (home / relative).read_bytes()
+        if relative.parts[0] == "injections":
+            before, after = json.loads(contents), json.loads(actual)
+            assert all(after.get(key) == value for key, value in before.items())
+            assert after["last_seen"] >= before["time"]
+        else:
+            assert actual == contents

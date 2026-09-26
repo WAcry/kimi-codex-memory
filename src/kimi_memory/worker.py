@@ -17,10 +17,11 @@ from .errors import (
 )
 from .evidence import budget_evidence, normalize, redact
 from .extraction_output import EXTRACTION_TOOL, extraction_tool, parse_extraction
-from .files import file_lock, memory_home, read_json, utf8_middle, write_json
+from .files import digest, file_lock, memory_home, read_json, utf8_middle, write_json
 from .issues import Issues
 from .kimi import Transcript
 from .models import CallBudget, Model
+from .retries import consumes_source_attempt
 from .scan import allowed, clean_events, collect_inputs
 from .server import ServerManager
 from .store import Store, keep_lease
@@ -28,6 +29,7 @@ from .workspace import (
     MINIMAL_SUMMARY,
     PROMPTS,
     Workspace,
+    clean_current_publication,
     ensure_layout,
     prune_generations,
     recover_publication,
@@ -113,12 +115,16 @@ def extract_one(
         store.save_extraction(transcript.source, version, summary, slug, owner, time.time())
         return "extracted" if summary else "empty"
     except Exception as exc:
+        delay = gen.retry_delay_seconds
+        if getattr(exc, "retry_at", None) is not None:
+            delay = max(delay, int(exc.retry_at - time.time()) + 1)
         store.fail(
             key,
             owner,
             now=time.time(),
-            delay=gen.retry_delay_seconds,
+            delay=delay,
             code=exc.code if isinstance(exc, MemoryErrorBase) else "extraction_failed",
+            consume_attempt=consumes_source_attempt(exc),
         )
         raise
 
@@ -269,12 +275,29 @@ def run_pass(
 
     try:
         recover_publication(home, store)
-        store.prepare_extraction_requester(__version__, config.generation.max_extraction_attempts)
+        clean_current_publication(home, issues=issues)
         effective = None
+
+        def prepare_retries():
+            # File/config resolution only: do not request OAuth tokens or call models.
+            try:
+                candidate = Model(
+                    config.extraction,
+                    effective=effective,
+                    input_limit=config.generation.max_input_tokens,
+                )
+                identity = candidate.retry_identity()
+            except (MemoryErrorBase, OSError, ValueError):
+                # Invalid credentials/config must not reset exhausted jobs every pass.
+                return
+            store.prepare_extraction_requester(
+                digest({"requester": __version__, "model": identity}),
+                config.generation.max_extraction_attempts,
+            )
+
         if client is None:
             manager = ServerManager(config.api)
             with manager as api:
-                scan = collect_inputs(api, store, config, home, events, time.time(), issues)
                 version = api.server_version
                 if models is None:
                     try:
@@ -283,16 +306,19 @@ def run_pass(
                         # The local Kimi config remains the default resolver; never
                         # switch providers merely because the read-only server exited.
                         issues.add("model_config", exc)
+                prepare_retries()
+                scan = collect_inputs(api, store, config, home, events, time.time(), issues)
             if manager.cleanup_error:
                 issues.add("helper_cleanup", manager.cleanup_error)
         else:
-            scan = collect_inputs(client, store, config, home, events, time.time(), issues)
             version = getattr(client, "server_version", "test")
             if models is None:
                 try:
                     effective = client.get("/api/v1/config")
                 except MemoryErrorBase as exc:
                     issues.add("model_config", exc)
+            prepare_retries()
+            scan = collect_inputs(client, store, config, home, events, time.time(), issues)
         if acknowledged is not None:
             acknowledged.update(scan.acknowledged)
         budget = CallBudget(
@@ -425,6 +451,14 @@ def run(home: Path | None = None, *, drain: bool = False) -> dict:
                     }
                 result["updated_at"] = time.time()
                 result["worker_version"] = __version__
+                incompatible = result.get("error_code") == "incompatible_kimi" or any(
+                    key.endswith(":incompatible_kimi")
+                    for key in result.get("issues", {}).get("counts", {})
+                )
+                if incompatible:
+                    result["update_hint"] = (
+                        "Check the plugin's supported Kimi versions with doctor; use /plugins marketplace to update the plugin. Kimi itself is never upgraded automatically."
+                    )
                 if result["state"] == "paused":
                     result["retry_at"] = time.time() + (
                         config.generation.retry_delay_seconds if config is not None else 60

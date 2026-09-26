@@ -112,10 +112,17 @@ def test_notes_edit_changes_consolidation_inputs(home, config, store):
     atomic_write(note, "Please remember task scope A")
     first = phase_two(store, config, home, ScriptModel())
     atomic_write(note, "Correction: scope B supersedes scope A")
+    workspace = Workspace(home, [], config.generation)
+    try:
+        workspace.prepare()
+        diff = (workspace.path / "phase2_workspace_diff.md").read_text()
+        assert "+Correction: scope B" in diff and "-Please remember task scope A" in diff
+    finally:
+        workspace.close()
     second = phase_two(store, config, home, ScriptModel())
     assert first != second and note.exists()
-    diff = (current_generation(home) / "phase2_workspace_diff.md").read_text()
-    assert "+Correction: scope B" in diff and "-Please remember task scope A" in diff
+    assert not (current_generation(home) / "phase2_workspace_diff.md").exists()
+    assert not (current_generation(home) / ".git").exists()
 
 
 def test_symlink_notes_are_never_followed(home, config, tmp_path):

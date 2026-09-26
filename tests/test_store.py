@@ -87,7 +87,13 @@ def test_citation_receipts_are_idempotent_and_event_time_does_not_regress(store,
 def test_unknown_citation_never_creates_a_memory(store):
     use = CitationUse("event", frozenset({"missing"}), time.time())
     assert store.record_citations([use], now=time.time()) == 0
-    assert store.stats() == {"summaries": 0, "citation_receipts": 1, "running_jobs": 0}
+    assert store.stats() == {
+        "summaries": 0,
+        "citation_receipts": 1,
+        "running_jobs": 0,
+        "failed_extractions": 0,
+        "deferred_extractions": 0,
+    }
 
 
 def test_future_citation_rolls_back_receipts(store, source):

@@ -79,8 +79,12 @@ def test_generation_cleanup_failure_cannot_turn_a_committed_publication_into_fai
     old = published_root(home)
     atomic_write(home / "memories_v2/extensions/ad_hoc/notes/change.md", "a new explicit request")
 
+    from kimi_memory.platform import remove_owned_tree
+
     def denied(path):
-        raise PermissionError("simulated locked directory")
+        if path.name.startswith("gc-"):
+            raise PermissionError("simulated locked retired directory")
+        return remove_owned_tree(path)
 
     monkeypatch.setattr("kimi_memory.workspace.remove_owned_tree", denied)
     issues = Issues()
@@ -93,7 +97,8 @@ def test_generation_cleanup_failure_cannot_turn_a_committed_publication_into_fai
             issues=issues,
         )
         assert published_root(home).name == output and published_root(home) != old
-        assert old.exists() and issues.count == 1
+        assert not old.exists() and issues.count >= 1
+        assert list((home / "_staging").glob("gc-*"))
         assert store.pending_publication() is None
     finally:
         store.close()

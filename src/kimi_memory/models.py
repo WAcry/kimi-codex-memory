@@ -3,12 +3,13 @@
 import json
 import threading
 import time
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from .config import ModelConfig
-from .errors import ModelError
+from .errors import BudgetError, ModelError
 from .evidence import estimate_tokens
+from .files import digest
 from .model_config import Connection, resolve_connection
 from .oauth import native_auth
 from .requester import native_request
@@ -25,7 +26,7 @@ class CallBudget:
     def reserve(self):
         with self.lock:
             if self.calls >= self.per_run:
-                raise ModelError("Per-run model-call budget reached")
+                raise BudgetError("Per-run model-call budget reached")
             self.store.reserve_model_call(now=time.time(), daily_limit=self.daily)
             self.calls += 1
 
@@ -48,6 +49,23 @@ class Model:
 
     def ready(self) -> None:
         self.connection = resolve_connection(self.config, home=self.home, effective=self.effective)
+
+    def retry_identity(self) -> str:
+        """Resolved behavior, not tokens/credentials; called before selecting failed jobs."""
+        if self.connection is None:
+            self.ready()
+        value = asdict(self.connection)
+        value.pop("key", None)
+        value["headers"] = {
+            key: val
+            for key, val in value["headers"].items()
+            if not any(
+                secret in key.lower() for secret in ("authorization", "key", "token", "cookie")
+            )
+        }
+        settings = asdict(self.config)
+        settings.pop("api_key", None)
+        return digest({"connection": value, "settings": settings, "input_limit": self.input_limit})
 
     def input_budget(self) -> int:
         if self.connection is None:

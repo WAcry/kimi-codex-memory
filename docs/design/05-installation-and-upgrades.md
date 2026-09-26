@@ -3,20 +3,16 @@
 ## 用户入口
 
 唯一主入口是 Kimi 的原生 Plugin/Marketplace。项目不发布 PyPI 包，也不
-安装/升级 Kimi。安装包包含六个平台的独立 Python runtime；小型 launcher
-在 Kimi 自带的 Node 运行时中选择本机产物。
-
-当前使用 Kimi 的 __plugin_run_node 入口，standalone 和 npm 两种安装都
-提供它，但它不是承诺永远不变的公共接口；必须做真实宿主回归。它失效时
-无需迁移记忆数据，但需要更新插件 launcher。业务 API 失败与该入口失效
-是不同故障，不能声称任意宿主破坏性变更都不会影响 hook 运行。
-在调用该入口之前，平台 shell 包装先设置子进程的 NO_AUTO_UPDATE；Kimi
-main 在解析子命令之前处理 native staged swap，不能在 launch.mjs 内才
-设置它。包装不修改用户 shell/配置，不安装其他运行时。
+安装/升级 Kimi。安装包包含六个平台的独立 Python runtime，平台 shell
+launcher 直接选择本机 executable，reader 不经过 Kimi/Node 隐藏入口。
+只有后台 OAuth/模型桥继续借用 __plugin_run_node；该入口变化只影响
+生成桥接，不会让现成文件的 reader 无法启动。其兼容风险仍需真实宿主
+回归。所有后台 Kimi 调用保持局部 NO_AUTO_UPDATE，不修改用户设置。
 
 ## 发布
 
-main 上的 CI 在六种平台测试、构建、搬移验证，全部通过后合并 ZIP。
+main 上的 CI 在六种平台以当前固定宿主测试、构建、搬移验证，另有最低
+支持宿主的 Linux 真实契约测试；全部通过后合并 ZIP。
 发布版本以 kimi.plugin.json 为源，并核对 Python/package/Marketplace
 版本一致。只有版本尚未发布时才创建 immutable GitHub Release；绝不覆盖
 已发布二进制。源码 archive 不等于包含 runtime 的 release ZIP。
@@ -50,7 +46,9 @@ Windows 符号链接权限。缺失返回无发布状态，格式不明或损坏
 
 ## 兼容策略
 
-Kimi product version 仅用于诊断和实例发现。新 patch/minor 版本直接
+保持独立插件版本及最低支持下限，而不是与 Kimi 一一同号发布。
+defaults/host.toml 统一最低版本、当前测试版、源码 commit 和契约名。
+除明确低于支持下限外，Kimi product version 用于诊断和实例发现。新版本直接
 尝试接口，忽略无关新增字段；缺失必要内容、未知语义或不完整分页才失败。
 读取失败不能被解释为“空历史”，不能由此触发删除。
 不先调用 --version，不将启动前后版本差异判为错误。正在工作的连接
@@ -59,3 +57,6 @@ Kimi product version 仅用于诊断和实例发现。新 patch/minor 版本直�
 
 额度/网络失败保留事件并退避。用户不需要编辑兼容白名单；新版本契约
 发生变化时由新版插件适配。reader 不导入 generation 配置/数据库/API。
+来源/输出失败有有限次数，外部条件故障只延后不耗尽来源。有效模型/请求器
+指纹改变和显式 retry 可恢复失败项，指纹不包含访问 token，不影响成功
+来源水位。具体状态边界见 DESIGN 11；升级/维护流程见 DESIGN 12。

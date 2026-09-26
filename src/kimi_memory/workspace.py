@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import GenerationConfig
-from .errors import ConfigurationError, ModelError, UnsafePathError
+from .errors import BusyError, ConfigurationError, ModelError, UnsafePathError
 from .evidence import redact
 from .files import (
     atomic_write,
@@ -20,6 +20,7 @@ from .files import (
     published_root,
     read_bounded,
     read_json,
+    snapshot_lock,
     sync_dir,
     within,
     write_json,
@@ -209,7 +210,11 @@ class Workspace:
         if self.old:
             for path in sorted(self.old.rglob("*.md")):
                 relative = path.relative_to(self.old)
-                if ".git" in relative.parts or path.is_symlink():
+                if (
+                    ".git" in relative.parts
+                    or relative.as_posix() == DIFF_FILE
+                    or path.is_symlink()
+                ):
                     continue
                 try:
                     self.previous_files[relative.as_posix()] = read_bounded(
@@ -386,8 +391,9 @@ class Workspace:
         )
         validate_summary(text, self.config.max_memory_summary_bytes, self.source_files)
         atomic_write(self.path / "memory_summary.md", text)
-        _git(self.path, "add", "-A")
-        _git(self.path, "commit", "--quiet", "--amend", "--no-edit", "--allow-empty")
+        # Git and the deletion diff are processing material, not public memory.
+        # prepare() reconstructs a baseline from files next time; retain no reflog.
+        remove_processing_artifacts(self.path)
         manifest = {
             "format": 1,
             "generation": self.generation,
@@ -405,14 +411,15 @@ class Workspace:
         }
         write_json(self.path / "_manifest.json", manifest)
         target = self.home / "_generations" / self.generation
-        os.replace(self.path, target)
-        sync_dir(target.parent)
         store.publication_intent(self.generation, owner, manifest, time.time())
 
         def switch():
             write_json(self.home / "current.json", {"format": 1, "generation": self.generation})
 
-        store.publish_fenced(owner, switch)
+        with snapshot_lock(self.home):
+            os.replace(self.path, target)
+            sync_dir(target.parent)
+            store.publish_fenced(owner, switch)
         store.finalize_publication(self.generation, now=time.time())
         self.published = True
         for path, fingerprint in self.expired_resources:
@@ -445,8 +452,49 @@ def recover_publication(home: Path, store: Store) -> None:
         store.abandon_publication()
 
 
+def remove_processing_artifacts(root: Path) -> None:
+    """Delete only transient files owned by this workspace, never memory content."""
+    (root / DIFF_FILE).unlink(missing_ok=True)
+    git = root / ".git"
+    if git.is_symlink() or git.is_file():
+        git.unlink()
+    elif git.exists():
+        remove_owned_tree(git)
+
+
+def clean_current_publication(home: Path, *, issues: Issues) -> None:
+    """Older public versions carried temporary data; remove it without a model call."""
+    current = current_generation(home)
+    if current is not None:
+        try:
+            remove_processing_artifacts(current)
+        except (OSError, UnsafePathError) as exc:
+            issues.add("publication_cleanup", exc)
+
+
 def prune_generations(home: Path, keep: int, *, issues: Issues | None = None) -> None:
     issues = issues if issues is not None else Issues()
+    garbage = []
+    try:
+        with snapshot_lock(home):
+            garbage = _retire_generations(home, keep, issues)
+    except (BusyError, OSError) as exc:
+        issues.add("generation_cleanup", exc)
+    # Expensive filesystem deletion is outside the reader's short critical section.
+    garbage.extend(
+        path
+        for path in (home / "_staging").glob("gc-*")
+        if re.fullmatch(r"gc-[0-9a-f]{32}", path.name)
+    )
+    for path in set(garbage):
+        try:
+            if path.exists():
+                remove_owned_tree(path)
+        except (OSError, UnsafePathError) as exc:
+            issues.add("generation_cleanup", exc)
+
+
+def _retire_generations(home: Path, keep: int, issues: Issues) -> list[Path]:
     current = current_generation(home)
     candidates = []
     for path in (home / "_generations").iterdir():
@@ -468,17 +516,22 @@ def prune_generations(home: Path, keep: int, *, issues: Issues | None = None) ->
     # Keep snapshots held by recent sessions. Their injected paths must remain useful.
     for receipt in (home / "injections").glob("*.json"):
         try:
-            data = read_json(receipt, 4096)
+            data = read_json(receipt, 8192)
             generation = data.get("generation", "")
-            if data.get("time", 0) > time.time() - 30 * 86400 and re.fullmatch(
-                r"[0-9a-f]{32}", generation
-            ):
+            if data.get(
+                "last_seen", data.get("time", 0)
+            ) > time.time() - 30 * 86400 and re.fullmatch(r"[0-9a-f]{32}", generation):
                 retained.add(home / "_generations" / generation)
         except (OSError, ValueError, TypeError, AttributeError):
             continue
+    garbage = []
+    private_dir(home / "_staging")
     for _, path in candidates:
         if path not in retained:
             try:
-                remove_owned_tree(path)
+                retired = home / "_staging" / ("gc-" + uuid.uuid4().hex)
+                os.replace(path, retired)
+                garbage.append(retired)
             except (OSError, UnsafePathError) as exc:
                 issues.add("generation_cleanup", exc)
+    return garbage

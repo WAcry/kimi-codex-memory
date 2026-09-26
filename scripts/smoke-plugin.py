@@ -93,6 +93,22 @@ def main():
             return result.stdout
 
         manifest = json.loads((root / "kimi.plugin.json").read_text(encoding="utf-8"))
+        host_path = env["PATH"]
+        # A fake incompatible host and Node precede PATH during all reader tests.
+        # No package-reader operation is permitted to invoke either executable.
+        poison = base / "unavailable-host"
+        poison.mkdir()
+        marker = poison / "invoked"
+        for name in ("kimi.cmd", "node.cmd") if os.name == "nt" else ("kimi", "node"):
+            script = poison / name
+            text = (
+                ('@echo off\necho called > "' + str(marker) + '"\nexit /b 97\n')
+                if os.name == "nt"
+                else ('#!/bin/sh\nprintf called > "' + str(marker) + '"\nexit 97\n')
+            )
+            script.write_text(text, encoding="utf-8")
+            script.chmod(0o755)
+        env["PATH"] = str(poison) + os.pathsep + system_path
         assert run([str(binary), "--version"]).strip() == manifest["version"]
         assert (binary.parent / "licenses/CPython-LICENSE.txt").is_file()
         assert (binary.parent / "licenses/PyInstaller-COPYING.txt").is_file()
@@ -105,6 +121,16 @@ def main():
         assert "## Memory notes" in note_guidance
         assert (home / "memories_v2/extensions/ad_hoc/notes").as_posix() in note_guidance
         assert "MEMORY_SUMMARY" not in note_guidance and "Memory citations:" not in note_guidance
+        accepted = json.dumps(
+            {
+                "hook_event_name": "TurnStarted",
+                "session_id": "first-context",
+                "origin_kind": "user",
+                "turn_id": 1,
+                "prompt": "",
+            }
+        )
+        assert run(hook, input=accepted, shell=True) == ""
         assert run(hook, input=initial_payload, shell=True) == ""
         assert not (home / "current.json").exists()
         generation = "a" * 32
@@ -123,8 +149,26 @@ def main():
         payload = json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "smoke-session"})
         first = json.loads(run(hook, input=payload, shell=True))
         assert "Synthetic preserved memory" in first["message"]
+        assert (
+            run(
+                hook,
+                input=json.dumps(
+                    {
+                        "hook_event_name": "TurnStarted",
+                        "session_id": "smoke-session",
+                        "origin_kind": "user",
+                        "turn_id": 1,
+                        "prompt": "",
+                    }
+                ),
+                shell=True,
+            )
+            == ""
+        )
         assert run(hook, input=payload, shell=True) == ""
         assert json.loads(run([str(binary), "status"]))["summary_available"]
+        assert not marker.exists(), "Offline reader invoked Kimi or Node"
+        env["PATH"] = host_path
         # Exercise the frozen writer against an empty native Kimi home; no LLM is called.
         empty = base / "empty-memory"
         (base / "kimi").mkdir(exist_ok=True)

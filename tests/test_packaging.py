@@ -9,6 +9,7 @@ from pathlib import Path
 
 from kimi_memory import __version__
 from kimi_memory.cli import add_note, initialize
+from kimi_memory.compatibility import HOST
 from kimi_memory.files import atomic_write
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,12 @@ def test_platform_archive_preserves_unix_launcher_mode_even_on_windows(tmp_path)
 def test_upstream_prompts_and_notices_are_byte_identical_to_the_pinned_manifest():
     manifest = tomllib.loads((ROOT / "upstream.toml").read_text())
     assert len(manifest["files"]) == 7
+    assert (
+        manifest["kimi"]["source_commit"]
+        == manifest["kimi_requester"]["source_commit"]
+        == HOST["source_commit"]
+    )
+    assert manifest["kimi"]["product_version"] == HOST["tested_version"]
     for entry in manifest["files"]:
         assert hashlib.sha256((ROOT / entry["path"]).read_bytes()).hexdigest() == entry["sha256"]
     for entry in manifest["kimi_files"]:

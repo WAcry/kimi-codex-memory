@@ -81,6 +81,11 @@ Codex phase2 会启动隔离的 coding agent；其普通工具来自 core 的工
 
 ## Kimi OAuth 源码复用
 
+当前OAuth与requester已统一核对到同一个官方2.1.1 release commit，见
+defaults/host.toml和upstream.toml。先前OAuth来源标注的2.1.0文件与该
+commit逐字相同，此次统一来源记录没有改写原生认证逻辑。最低支持
+2.1.0是兼容下限而不是另一套运行源码。维护规则见DESIGN 12。
+
 `upstream.toml` 的 `kimi_files` 逐个记录原样复制的 OAuth 生命周期、文件
 存储、请求头及许可证。不是从用户机器任意加载一份未确定版本的私有模块。
 `bridge/auth.ts` 是薄适配，`native/auth.mjs` 是固定依赖构建出的运行文件。

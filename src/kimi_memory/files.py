@@ -139,6 +139,25 @@ def file_lock(path: Path, *, blocking: bool = False):
         os.close(fd)
 
 
+@contextmanager
+def snapshot_lock(home: Path, *, timeout: float = 1.0):
+    """Short reader/pointer/GC exclusion, never held during models or directory removal."""
+    deadline = time.monotonic() + timeout
+    while True:
+        lock = file_lock(home / "snapshot.lock")
+        try:
+            lock.__enter__()
+            break
+        except BusyError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
+    try:
+        yield
+    finally:
+        lock.__exit__(None, None, None)
+
+
 def published_root(home: Path) -> Path | None:
     """Resolve one immutable generation without opening the generation database."""
     pointer = home / "current.json"

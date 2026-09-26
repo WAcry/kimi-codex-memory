@@ -13,6 +13,7 @@ htmlcov/
 *.sqlite*
 
 node_modules/
+host-upstream-report.json
 *.spec
 .host/
 platform-artifacts/

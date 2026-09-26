@@ -3,12 +3,12 @@ commit = "5c5308fc9a9ee789049d646ef11e5400384b9c6f"
 repository = "https://github.com/openai/codex"
 
 [kimi]
-source_commit = "a1e4c13d411f75bd327e2c33077daff42ee63582"
-product_version = "2.1.0"
+source_commit = "f67e6398fb3210ad8ace970e2dfd5bcc984ed61f"
+product_version = "2.1.1"
 transcript_contract = "native-main-agent-current"
 
 [kimi_requester]
-source_commit = "be7d5f5fea7800778e4660cd5f36780ba783bddd"
+source_commit = "f67e6398fb3210ad8ace970e2dfd5bcc984ed61f"
 repository = "https://github.com/MoonshotAI/kimi-code"
 files_manifest = "vendor/kimi-requester/files.json"
 license_path = "vendor/kimi-requester/LICENSE"
