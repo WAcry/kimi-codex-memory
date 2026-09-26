@@ -224,7 +224,7 @@ def test_installed_native_kimi_helper_and_borrowed_peer(tmp_path, monkeypatch):
     owner = ServerManager(config, home=home)
     try:
         api = owner.connect()
-        assert api.server_version == "2.1.0"
+        assert isinstance(api.server_version, str) and api.server_version
         assert api.sessions(since=0, limit=10) == []
         pid = owner.child.pid
         peer = ServerManager(config, home=home)

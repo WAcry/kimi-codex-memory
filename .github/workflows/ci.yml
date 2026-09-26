@@ -47,6 +47,8 @@ jobs:
       - run: npm ci --ignore-scripts --registry=https://registry.npmjs.org
       - name: Rebuild audited authentication bridge
         run: npm run build:auth
+      - name: Rebuild audited Kimi model requester
+        run: node scripts/build-model.mjs
       - name: Check bridge reproducibility
         run: git diff --exit-code -- src/kimi_memory/native
       - name: Install test-owned Kimi (never modifies a user installation)
@@ -59,6 +61,8 @@ jobs:
         run: uv run --no-sync python scripts/build-plugin.py
       - name: Test relocated plugin without Python or Node on PATH
         run: uv run --no-sync python scripts/smoke-plugin.py dist/plugin
+      - name: Test frozen requesters and fault isolation against local model servers
+        run: uv run --no-sync python scripts/smoke-models.py dist/plugin
       - name: Create installable platform archive
         run: uv run --no-sync python scripts/archive-plugin.py pack dist/plugin dist/plugin-${{ matrix.target }}.zip
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

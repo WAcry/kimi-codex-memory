@@ -1,0 +1,200 @@
+"""Run the shipped Python+JS requesters end-to-end, with local synthetic providers only."""
+
+import argparse
+import json
+import os
+import platform
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from dataclasses import replace
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from conftest import NativeApi, ScriptModel, serve, turn  # noqa: E402
+
+from kimi_memory.files import atomic_write, write_json  # noqa: E402
+from kimi_memory.kimi import Source, Transcript  # noqa: E402
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("plugin", type=Path)
+    args = parser.parse_args()
+    system = {"Windows": "win32", "Darwin": "darwin", "Linux": "linux"}[platform.system()]
+    arch = "arm64" if platform.machine().lower() in {"arm64", "aarch64"} else "x64"
+    executable = "kimi-codex-memory.exe" if system == "win32" else "kimi-codex-memory"
+    binary = (
+        args.plugin.resolve() / "runtime" / f"{system}-{arch}" / "kimi-codex-memory" / executable
+    )
+    kimi = os.environ.get("KIMI_MEMORY_NATIVE_KIMI") or shutil.which("kimi")
+    assert kimi and binary.is_file()
+    with tempfile.TemporaryDirectory(prefix="frozen-models-") as folder:
+        base = Path(folder).resolve()
+        host = base / "kimi"
+        atomic_write(host / "config.toml", "telemetry = false\n")
+        atomic_write(host / "server.token", "test-native-token-never-log")
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith(("KIMI_", "OPENAI_", "ANTHROPIC_"))
+            and not any(
+                word in key.upper() for word in ("API_KEY", "ACCESS_TOKEN", "REFRESH_TOKEN")
+            )
+        }
+        env.update(
+            KIMI_CODE_HOME=str(host),
+            KIMI_CODE_NO_AUTO_UPDATE="1",
+            KIMI_MEMORY_NO_AUTOSTART="1",
+            PYTHONUTF8="1",
+            KIMI_MEMORY_API_KEY="synthetic-model-key",
+        )
+        git = shutil.which("git")
+        system_path = (
+            str(Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32")
+            if os.name == "nt"
+            else "/usr/bin:/bin"
+        )
+        env["PATH"] = os.pathsep.join(
+            [str(Path(kimi).parent), str(Path(git).parent) if git else "", system_path]
+        )
+        now = float(int(time.time()))
+        source = Source(
+            "session_synthetic", now - 36000, now - 40000, str(base / "workspace"), "workspace_test"
+        )
+        good = Transcript(source, [turn(source)], [], [], [], [])
+        bad = replace(
+            good,
+            source=Source(
+                "session_bad", now - 35000, now - 40000, str(base / "workspace"), "workspace_test"
+            ),
+        )
+        for protocol in ("openai", "openai_responses", "anthropic"):
+            home = base / protocol
+            env["KIMI_MEMORY_HOME"] = str(home)
+            script = ScriptModel()
+
+            def provider(method, path, body, headers, protocol=protocol, script=script):
+                if protocol == "openai":
+                    messages = body["messages"]
+                elif protocol == "openai_responses":
+                    messages = [{"role": "system", "content": body["instructions"]}]
+                    for item in body["input"]:
+                        if item.get("type") == "function_call_output":
+                            text = item["output"]
+                            if isinstance(text, list):
+                                text = "".join(part.get("text", "") for part in text)
+                            messages.append({"role": "tool", "content": text})
+                else:
+                    messages = [
+                        {
+                            "role": "system",
+                            "content": "\n".join(part["text"] for part in body["system"]),
+                        }
+                    ]
+                    for message in body["messages"]:
+                        for part in message["content"]:
+                            if part.get("type") == "tool_result":
+                                text = part["content"]
+                                if isinstance(text, list):
+                                    text = "".join(item.get("text", "") for item in text)
+                                messages.append({"role": "tool", "content": text})
+                response = script.complete(messages, tools=body.get("tools"))
+                if protocol == "openai":
+                    return 200, {
+                        "choices": [
+                            {
+                                "finish_reason": "tool_calls"
+                                if response.get("tool_calls")
+                                else "stop",
+                                "message": response,
+                            }
+                        ]
+                    }
+                if protocol == "openai_responses":
+                    output = [
+                        {
+                            "type": "function_call",
+                            "call_id": call["id"],
+                            "name": call["function"]["name"],
+                            "arguments": call["function"]["arguments"],
+                        }
+                        for call in response.get("tool_calls", [])
+                    ]
+                    if not output:
+                        output = [
+                            {
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [{"type": "output_text", "text": response["content"]}],
+                            }
+                        ]
+                    return 200, {"status": "completed", "output": output}
+                content = [
+                    {
+                        "type": "tool_use",
+                        "id": call["id"],
+                        "name": call["function"]["name"],
+                        "input": json.loads(call["function"]["arguments"]),
+                    }
+                    for call in response.get("tool_calls", [])
+                ]
+                return 200, {
+                    "stop_reason": "tool_use" if content else "end_turn",
+                    "content": content or [{"type": "text", "text": response["content"]}],
+                }
+
+            native = NativeApi([bad, good])
+
+            def api_callback(method, path, body, headers, native=native):
+                if path.startswith("/api/v1/sessions/session_bad/transcript"):
+                    return 500, {"code": 50001}
+                return native(method, path, body, headers)
+
+            with serve(api_callback) as (api_url, _), serve(provider) as (model_url, requests):
+                atomic_write(
+                    home / "worker.toml",
+                    f'''
+[api]
+server_url = "{api_url}"
+auto_start = false
+[extraction]
+base_url = "{model_url}/v1"
+model = "local-scripted-model"
+protocol = "{protocol}"
+api_key_env = "KIMI_MEMORY_API_KEY"
+''',
+                )
+                write_json(
+                    home / "queue/deleted.json", {"event": "Stop", "session_id": "already_deleted"}
+                )
+                result = subprocess.run(
+                    [str(binary), "--home", str(home), "worker", "--once"],
+                    env=env,
+                    text=True,
+                    encoding="utf-8",
+                    capture_output=True,
+                    timeout=60,
+                )
+                assert result.returncode == 0, result.stderr[-1000:]
+                status = json.loads(result.stdout)
+                assert status["state"] == "degraded" and status["extractions"] == ["extracted"], (
+                    status
+                )
+                assert status["missing_sessions"] == 1 and status["retention_deferred"]
+                assert status["model_calls"] == len(requests) == 6
+                generation = json.loads((home / "current.json").read_text(encoding="utf-8"))[
+                    "generation"
+                ]
+                assert (home / "_generations" / generation / "memory_summary.md").is_file()
+                assert not (home / "queue/deleted.json").exists()
+        print(
+            "PASS frozen requester: Chat, Responses, Anthropic end-to-end; bad/deleted sources isolated; only local synthetic models."
+        )
+
+
+if __name__ == "__main__":
+    main()

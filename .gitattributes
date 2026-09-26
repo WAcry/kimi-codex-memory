@@ -14,3 +14,7 @@ LICENSE text eol=lf
 NOTICE text eol=lf
 **/*LICENSE* text eol=lf
 **/*NOTICE* text eol=lf
+# Generated SDK code contains significant trailing spaces inside template literals.
+# Dependency license text is preserved verbatim; never trim either generated file.
+src/kimi_memory/native/model.mjs whitespace=-blank-at-eol
+src/kimi_memory/native/MODEL-THIRD-PARTY-NOTICES whitespace=-blank-at-eol

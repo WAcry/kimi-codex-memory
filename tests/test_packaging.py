@@ -38,6 +38,18 @@ def test_upstream_prompts_and_notices_are_byte_identical_to_the_pinned_manifest(
         assert hashlib.sha256((ROOT / entry["path"]).read_bytes()).hexdigest() == entry["sha256"]
     for entry in manifest["kimi_files"]:
         assert hashlib.sha256((ROOT / entry["path"]).read_bytes()).hexdigest() == entry["sha256"]
+    requester = json.loads((ROOT / "vendor/kimi-requester/files.json").read_text(encoding="utf-8"))
+    for entry in requester:
+        assert hashlib.sha256((ROOT / entry["path"]).read_bytes()).hexdigest() == entry["sha256"]
+    assert (
+        hashlib.sha256((ROOT / manifest["kimi_requester"]["license_path"]).read_bytes()).hexdigest()
+        == manifest["kimi_requester"]["license_sha256"]
+    )
+    license_entry = manifest["standardwebhooks_license"]
+    assert (
+        hashlib.sha256((ROOT / license_entry["path"]).read_bytes()).hexdigest()
+        == license_entry["sha256"]
+    )
 
 
 def test_native_distribution_versions_match_and_no_pypi_workflow():

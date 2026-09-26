@@ -1,25 +1,27 @@
 """Generation orchestration. Importing/starting this is never necessary to read memory."""
 
-import fnmatch
 import json
+import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from .citations import collect_citations
+from . import __version__
 from .config import WorkerConfig, load_worker_config
 from .errors import (
     BusyError,
     MemoryErrorBase,
     ModelError,
     ResyncRequired,
-    TransportError,
     UnsafePathError,
 )
 from .evidence import budget_evidence, normalize, redact
+from .extraction_output import parse_extraction
 from .files import file_lock, memory_home, read_json, utf8_middle, write_json
-from .kimi import KimiClient, Transcript
+from .issues import Issues
+from .kimi import Transcript
 from .models import CallBudget, Model
+from .scan import allowed, clean_events, collect_inputs
 from .server import ServerManager
 from .store import Store, keep_lease
 from .workspace import (
@@ -33,96 +35,18 @@ from .workspace import (
 )
 
 
-def allowed(source_id: str, cwd: str, config: WorkerConfig) -> bool:
-    gen = config.generation
-
-    # Kimi emits native paths; accept the portable forward-slash spelling in overrides.
-    def matches(pattern: str) -> bool:
-        import os
-
-        value, pattern = cwd.replace("\\", "/"), pattern.replace("\\", "/")
-        if os.name == "nt":
-            value, pattern = value.casefold(), pattern.casefold()
-        return fnmatch.fnmatchcase(value, pattern)
-
-    return (
-        source_id not in gen.exclude_session_ids
-        and not any(matches(p) for p in gen.exclude_cwds)
-        and (not gen.include_cwds or any(matches(p) for p in gen.include_cwds))
-    )
-
-
 def queue_entries(home: Path) -> list[Path]:
     return sorted((home / "queue").glob("*.json"))
 
 
-def collect_inputs(
-    client: KimiClient,
+def extract_one(
+    transcript: Transcript,
     store: Store,
     config: WorkerConfig,
+    model,
     home: Path,
-    events: list[dict],
-    now: float,
-) -> tuple[list[Transcript], int]:
-    gen = config.generation
-    sources = client.sessions(since=now - gen.retention_days * 86400, limit=gen.max_session_scan)
-    forced = {e["session_id"] for e in events if isinstance(e.get("session_id"), str)}
-    current_ids = {
-        e["session_id"]
-        for e in events
-        if e.get("event") in {"SessionStart", "TurnStarted"}
-        and e.get("time", now) >= now - max(3600, gen.min_idle_hours * 3600)
-    }
-    known = {source.id for source in sources}
-    for source_id in sorted(forced - known):
-        try:
-            sources.append(client.source(source_id))
-        except TransportError:
-            # A queued event can outlive its session; a deleted source has no
-            # transcript left to read, so skip it instead of stalling the batch.
-            continue
-    active = set()
-    for path in (home / "activity").glob("*.json"):
-        try:
-            data = read_json(path, 4096)
-            if data.get("active") and data.get("time", 0) > now - max(
-                3600, gen.min_idle_hours * 3600
-            ):
-                active.add(data["session_id"])
-        except (OSError, ValueError, TypeError, KeyError, AttributeError):
-            continue
-    candidates = []
-    uses = []
-    scans = []
-    for source in sorted(sources, key=lambda s: (s.updated_at, s.id), reverse=True):
-        if not allowed(source.id, source.cwd, config):
-            continue
-        age = now - source.updated_at
-        extract = (
-            not source.busy
-            and not source.archived
-            and source.id not in active
-            and source.id not in current_ids
-            and gen.min_idle_hours * 3600 <= age <= gen.source_max_age_days * 86400
-            and len(candidates) < gen.max_extractions
-            and store.extraction_due(source, now)
-        )
-        if not extract and store.scan_is_current(source) and source.id not in forced:
-            continue
-        transcript = client.transcript(source)
-        uses.extend(collect_citations(transcript))
-        scans.append((source, transcript.version))
-        if extract:
-            candidates.append(transcript)
-    # Only after every required page/session is valid. No partial scan can drive forgetting.
-    count = store.record_citations(uses, now=now)
-    for source, version in scans:
-        store.scanned(source, version, now)
-    return candidates, count
-
-
-def extract_one(
-    transcript: Transcript, store: Store, config: WorkerConfig, model, home: Path
+    *,
+    allow_removal=None,
 ) -> str:
     gen = config.generation
     version = transcript.version
@@ -168,18 +92,7 @@ def extract_one(
             )
             if response.get("tool_calls"):
                 raise ModelError("Extraction has no tools")
-            try:
-                output = json.loads(response["content"])
-            except (ValueError, TypeError, KeyError) as exc:
-                raise ModelError("Extraction did not return a JSON object") from exc
-            if (
-                not isinstance(output, dict)
-                or set(output) != {"rollout_summary", "rollout_slug"}
-                or any(not isinstance(v, str) for v in output.values())
-            ):
-                raise ModelError(
-                    "Extraction must return exactly rollout_summary and rollout_slug strings"
-                )
+            output = parse_extraction(response)
             summary, slug = (
                 redact(output["rollout_summary"].strip()),
                 output["rollout_slug"].strip(),
@@ -189,6 +102,15 @@ def extract_one(
                 raise ModelError("Extracted slug exceeds its byte limit")
             if not summary and slug:
                 raise ModelError("Empty extraction must also have an empty slug")
+        if (
+            not summary
+            and store.has_summary(transcript.source.id)
+            and allow_removal is not None
+            and not allow_removal()
+        ):
+            raise ResyncRequired(
+                "An empty replacement waits for a complete citation synchronization"
+            )
         store.save_extraction(transcript.source, version, summary, slug, owner, time.time())
         return "extracted" if summary else "empty"
     except Exception as exc:
@@ -253,16 +175,32 @@ def consolidate_agent(workspace: Workspace, model) -> None:
     raise ModelError("Consolidation exceeded its step budget")
 
 
-def phase_two(store: Store, config: WorkerConfig, home: Path, model, *, can_publish=None) -> str:
+def phase_two(
+    store: Store,
+    config: WorkerConfig,
+    home: Path,
+    model,
+    *,
+    can_publish=None,
+    preserve_sources: bool = False,
+    issues: Issues | None = None,
+) -> str:
     gen = config.generation
+    issues = issues if issues is not None else Issues()
     rows = store.selected(
         cutoff=time.time() - gen.retention_days * 86400,
         limit=gen.max_consolidation_sources,
         accept=lambda row: allowed(row["source_id"], row["cwd"], config),
+        preserve=preserve_sources,
     )
-    workspace = Workspace(home, rows, gen)
+    workspace = Workspace(home, rows, gen, issues=issues)
     owner = None
     try:
+        meaningful_inputs = rows or any(
+            name != "extensions/ad_hoc/instructions.md" for name in workspace.files
+        )
+        if (preserve_sources or issues.count) and not meaningful_inputs:
+            return "preserved"
         owner = store.claim(
             "consolidate",
             workspace.input_hash,
@@ -281,21 +219,21 @@ def phase_two(store: Store, config: WorkerConfig, home: Path, model, *, can_publ
             store, "consolidate", owner, interval=gen.heartbeat_seconds, lease=gen.lease_seconds
         ):
             workspace.prepare()
-            meaningful_inputs = rows or any(
-                name != "extensions/ad_hoc/instructions.md" for name in workspace.files
-            )
             if not meaningful_inputs:
                 workspace.execute("read_file", {"path": "phase2_workspace_diff.md"})
                 workspace.execute("write_summary", {"content": MINIMAL_SUMMARY})
             else:
                 model.ready()
                 consolidate_agent(workspace, model)
-        if can_publish is not None and not can_publish():
+        if workspace.removes_sources and can_publish is not None and not can_publish():
             raise ResyncRequired(
-                "New hook events arrived during consolidation; published memory was preserved"
+                "New activity arrived before source removal; retained memory waits for synchronization"
             )
         generation = workspace.publish(store, owner)
-        prune_generations(home, gen.retained_generations)
+        try:
+            prune_generations(home, gen.retained_generations, issues=issues)
+        except OSError as exc:
+            issues.add("generation_cleanup", exc)
         return generation
     except Exception as exc:
         if owner:
@@ -319,26 +257,45 @@ def run_pass(
     client=None,
     models=None,
     initial_queue: set[Path] | None = None,
+    acknowledged: set[str] | None = None,
 ) -> dict:
     if not config.generation.enabled:
         return {"state": "disabled", "reader_available": True}
     ensure_layout(home)
     store = Store(home / "state.sqlite")
+    issues = Issues()
+
+    def pending():
+        return initial_queue is not None and bool(set(queue_entries(home)) - initial_queue)
+
     try:
         recover_publication(home, store)
+        store.prepare_extraction_requester(__version__, config.generation.max_extraction_attempts)
         effective = None
         if client is None:
             manager = ServerManager(config.api)
             with manager as api:
-                inputs, citations = collect_inputs(api, store, config, home, events, time.time())
+                scan = collect_inputs(api, store, config, home, events, time.time(), issues)
                 version = api.server_version
                 if models is None:
-                    effective = api.get("/api/v1/config")
+                    try:
+                        effective = api.get("/api/v1/config")
+                    except MemoryErrorBase as exc:
+                        # The local Kimi config remains the default resolver; never
+                        # switch providers merely because the read-only server exited.
+                        issues.add("model_config", exc)
+            if manager.cleanup_error:
+                issues.add("helper_cleanup", manager.cleanup_error)
         else:
-            inputs, citations = collect_inputs(client, store, config, home, events, time.time())
+            scan = collect_inputs(client, store, config, home, events, time.time(), issues)
             version = getattr(client, "server_version", "test")
             if models is None:
-                effective = client.get("/api/v1/config")
+                try:
+                    effective = client.get("/api/v1/config")
+                except MemoryErrorBase as exc:
+                    issues.add("model_config", exc)
+        if acknowledged is not None:
+            acknowledged.update(scan.acknowledged)
         budget = CallBudget(
             store,
             daily=config.generation.max_daily_model_calls,
@@ -361,40 +318,65 @@ def run_pass(
             ),
         )
         results = []
-        if inputs:
-            extraction.ready()
-            with ThreadPoolExecutor(max_workers=config.generation.extraction_concurrency) as pool:
-                futures = [
-                    pool.submit(extract_one, t, store, config, extraction, home) for t in inputs
-                ]
-                for future in futures:
-                    results.append(future.result())
-        if initial_queue is not None and set(queue_entries(home)) - initial_queue:
-            return {
-                "state": "pending_citations",
-                "reader_available": True,
-                "extractions": results,
-                "reason": "New hook events arrived; retention waits for their next sync",
-            }
-        pruned = store.prune(
-            cutoff=time.time() - config.generation.retention_days * 86400,
-            limit=config.generation.prune_batch_size,
-        )
+        if scan.inputs:
+            try:
+                extraction.ready()
+            except (MemoryErrorBase, OSError, ValueError) as exc:
+                issues.add("extraction_config", exc)
+                results.extend("failed" for _ in scan.inputs)
+            else:
+                with ThreadPoolExecutor(
+                    max_workers=config.generation.extraction_concurrency
+                ) as pool:
+                    futures = [
+                        (
+                            t.source.id,
+                            pool.submit(
+                                extract_one,
+                                t,
+                                store,
+                                config,
+                                extraction,
+                                home,
+                                allow_removal=lambda: scan.complete and not pending(),
+                            ),
+                        )
+                        for t in scan.inputs
+                    ]
+                    for source_id, future in futures:
+                        try:
+                            results.append(future.result())
+                        except sqlite3.Error:
+                            raise  # Global storage failure is not a bad session.
+                        except Exception as exc:
+                            issues.add("extraction", exc, source_id)
+                            results.append("failed")
+        preserve = not scan.complete or pending()
         publication = phase_two(
             store,
             config,
             home,
             consolidation,
-            can_publish=lambda: (
-                initial_queue is None or not (set(queue_entries(home)) - initial_queue)
-            ),
+            can_publish=lambda: scan.complete and not pending(),
+            preserve_sources=preserve,
+            issues=issues,
         )
+        retention_deferred = preserve or pending()
+        pruned = 0
+        if not retention_deferred:
+            pruned = store.prune(
+                cutoff=time.time() - config.generation.retention_days * 86400,
+                limit=config.generation.prune_batch_size,
+            )
         return {
-            "state": "ready",
+            "state": "degraded" if issues.count else "ready",
             "reader_available": True,
             "server_version": version,
             "extractions": results,
-            "citations_counted": citations,
+            "citations_counted": scan.citations,
+            "missing_sessions": scan.missing,
+            "retention_deferred": bool(retention_deferred),
+            "issues": issues.summary(),
             "pruned": pruned,
             "publication": publication,
             "model_calls": budget.calls,
@@ -411,17 +393,24 @@ def run(home: Path | None = None, *, drain: bool = False) -> dict:
             for _ in range(4 if drain else 1):
                 config = None
                 files = queue_entries(home)
-                events = []
+                events_by_path = {}
                 for path in files:
                     try:
-                        event = read_json(path, 4096)
-                        if isinstance(event, dict):
-                            events.append(event)
+                        events = clean_events([read_json(path, 4096)], time.time())
+                        if events:
+                            events_by_path[path] = events[0]
                     except (OSError, ValueError):
                         continue
                 try:
+                    acknowledged: set[str] = set()
                     config = load_worker_config(home)
-                    result = run_pass(home, config, events, initial_queue=set(files))
+                    result = run_pass(
+                        home,
+                        config,
+                        list(events_by_path.values()),
+                        initial_queue=set(files),
+                        acknowledged=acknowledged,
+                    )
                 except Exception as exc:
                     result = {
                         "state": "pending_citations"
@@ -436,15 +425,30 @@ def run(home: Path | None = None, *, drain: bool = False) -> dict:
                         else "Worker failed; inspect local configuration and rerun doctor",
                     }
                 result["updated_at"] = time.time()
+                result["worker_version"] = __version__
                 if result["state"] == "paused":
                     result["retry_at"] = time.time() + (
                         config.generation.retry_delay_seconds if config is not None else 60
                     )
                 write_json(home / "worker-status.json", result)
-                if result["state"] in {"ready", "disabled", "pending_citations"}:
+                if result["state"] in {"ready", "degraded", "disabled", "pending_citations"}:
                     for path in files:
-                        path.unlink(missing_ok=True)
-                if not drain or result["state"] == "paused" or not queue_entries(home):
+                        event = events_by_path.get(path)
+                        if (
+                            event is not None
+                            and result["state"] != "disabled"
+                            and event["session_id"] not in acknowledged
+                        ):
+                            continue
+                        try:
+                            path.unlink(missing_ok=True)
+                        except OSError:
+                            pass  # A locked notification is safely replayable.
+                if (
+                    not drain
+                    or result["state"] == "paused"
+                    or not (set(queue_entries(home)) - set(files))
+                ):
                     return result
             return result
     except BusyError:

@@ -1,6 +1,7 @@
 """Diff-based v2 consolidation with staged files and an atomic published pointer."""
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -23,6 +24,7 @@ from .files import (
     within,
     write_json,
 )
+from .issues import Issues
 from .platform import remove_owned_tree
 from .store import Store
 
@@ -82,21 +84,53 @@ def _git(root: Path, *args: str) -> str:
 
 
 def _extension_files(
-    root: Path, config: GenerationConfig, now: float
+    root: Path,
+    config: GenerationConfig,
+    now: float,
+    *,
+    previous: dict[str, str],
+    issues: Issues,
 ) -> tuple[dict[str, str], list[tuple[Path, str]]]:
     files = {}
     expired = []
     total = 0
-    for path in sorted((root / "extensions").rglob("*")):
-        if path.is_symlink():
-            raise UnsafePathError("Symlinks are not accepted as consolidation evidence")
-        if not path.is_file() or path.suffix != ".md":
-            continue
+    paths = []
+
+    def skipped(path: Path, error: Exception):
         relative = path.relative_to(root).as_posix()
-        raw = read_bounded(path, config.max_notes_bytes)
-        total += len(raw.encode())
-        if total > config.max_notes_bytes:
-            raise ConfigurationError("Extension input limit exceeded")
+        issues.add("extension", error, relative)
+        for name, text in previous.items():
+            if name == relative or name.startswith(relative + "/"):
+                files[name] = text  # Keep the last readable evidence; failure is not deletion.
+
+    extension_root = root / "extensions"
+    if extension_root.is_symlink():
+        skipped(extension_root, UnsafePathError("Linked extension directory refused"))
+        return files, expired
+    for directory, dirs, names in os.walk(
+        extension_root, followlinks=False, onerror=lambda exc: skipped(Path(exc.filename), exc)
+    ):
+        parent = Path(directory)
+        dirs.sort()
+        for name in list(dirs):
+            path = parent / name
+            if path.is_symlink():
+                skipped(path, UnsafePathError("Linked extension directory refused"))
+                dirs.remove(name)
+        paths.extend(parent / name for name in sorted(names) if name.endswith(".md"))
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        try:
+            if path.is_symlink() or not path.is_file():
+                raise UnsafePathError("Nonregular extension evidence refused")
+            raw = read_bounded(path, config.max_notes_bytes)
+            size = len(raw.encode())
+            if total + size > config.max_notes_bytes:
+                raise ConfigurationError("Extension input limit exceeded")
+            total += size
+        except (OSError, ValueError, ConfigurationError, UnsafePathError) as exc:
+            skipped(path, exc)
+            continue
         extension_parts = path.relative_to(root / "extensions").parts
         if len(extension_parts) >= 3 and extension_parts[1] == "resources":
             match = re.match(r"^(\d{4}-\d{2}-\d{2})(?:T(\d{2})[-:](\d{2})[-:](\d{2}))?", path.name)
@@ -156,16 +190,39 @@ def validate_summary(text: str, max_bytes: int, source_files: set[str] | None = 
 
 
 class Workspace:
-    def __init__(self, home: Path, rows: list[dict], config: GenerationConfig):
+    def __init__(
+        self,
+        home: Path,
+        rows: list[dict],
+        config: GenerationConfig,
+        *,
+        issues: Issues | None = None,
+    ):
         self.home, self.rows, self.config = home, rows, config
+        self.issues = issues if issues is not None else Issues()
         ensure_layout(home)
         self.generation = uuid.uuid4().hex
         self.path = home / "_staging" / self.generation
-        private_dir(self.path)
         self.old = current_generation(home)
         self.old_manifest = read_json(self.old / "_manifest.json") if self.old else {}
+        self.previous_files: dict[str, str] = {}
+        if self.old:
+            for path in sorted(self.old.rglob("*.md")):
+                relative = path.relative_to(self.old)
+                if ".git" in relative.parts or path.is_symlink():
+                    continue
+                try:
+                    self.previous_files[relative.as_posix()] = read_bounded(
+                        path, max(config.max_notes_bytes, config.max_memory_summary_bytes)
+                    )
+                except (OSError, ValueError) as exc:
+                    self.issues.add("baseline", exc, relative.as_posix())
         self.files, self.expired_resources = _extension_files(
-            home / "memories_v2", config, time.time()
+            home / "memories_v2",
+            config,
+            time.time(),
+            previous=self.previous_files,
+            issues=self.issues,
         )
         self.files.update(
             {"rollout_summaries/" + summary_filename(row): summary_file(row) for row in rows}
@@ -173,6 +230,9 @@ class Workspace:
         self.input_hash = digest(self.files)
         self.diff_read = False
         self.published = False
+        old_ids = {source["source_id"] for source in self.old_manifest.get("sources", [])}
+        self.removes_sources = bool(old_ids - {row["source_id"] for row in rows})
+        private_dir(self.path)
 
     @property
     def source_files(self) -> set[str]:
@@ -194,12 +254,8 @@ class Workspace:
             return False
 
     def prepare(self) -> None:
-        if self.old:
-            for path in self.old.rglob("*.md"):
-                relative = path.relative_to(self.old)
-                if ".git" in relative.parts or path.is_symlink():
-                    continue
-                atomic_write(self.path / relative, path.read_bytes())
+        for relative, text in self.previous_files.items():
+            atomic_write(within(self.path, relative), text)
         _git(self.path, "init", "--quiet", "--initial-branch=main")
         atomic_write(self.path / ".git/info/exclude", f"{DIFF_FILE}\n_manifest.json\n")
         _git(self.path, "add", "-A")
@@ -369,7 +425,10 @@ class Workspace:
 
     def close(self) -> None:
         if self.path.is_dir() and self.path.parent == self.home / "_staging":
-            remove_owned_tree(self.path)
+            try:
+                remove_owned_tree(self.path)
+            except (OSError, UnsafePathError) as exc:
+                self.issues.add("staging_cleanup", exc)
 
 
 def recover_publication(home: Path, store: Store) -> None:
@@ -386,7 +445,8 @@ def recover_publication(home: Path, store: Store) -> None:
         store.abandon_publication()
 
 
-def prune_generations(home: Path, keep: int) -> None:
+def prune_generations(home: Path, keep: int, *, issues: Issues | None = None) -> None:
+    issues = issues if issues is not None else Issues()
     current = current_generation(home)
     candidates = []
     for path in (home / "_generations").iterdir():
@@ -394,7 +454,12 @@ def prune_generations(home: Path, keep: int) -> None:
             continue
         try:
             data = read_json(path / "_manifest.json")
-            if data.get("generation") == path.name:
+            stamp = data.get("published_at")
+            if (
+                data.get("generation") == path.name
+                and type(stamp) in (int, float)
+                and math.isfinite(stamp)
+            ):
                 candidates.append((data["published_at"], path))
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
             continue
@@ -413,4 +478,7 @@ def prune_generations(home: Path, keep: int) -> None:
             continue
     for _, path in candidates:
         if path not in retained:
-            remove_owned_tree(path)
+            try:
+                remove_owned_tree(path)
+            except (OSError, UnsafePathError) as exc:
+                issues.add("generation_cleanup", exc)

@@ -8,6 +8,7 @@ import time
 import uuid
 from pathlib import Path
 
+from . import __version__
 from .errors import BusyError
 from .files import digest, file_lock, memory_home, private_dir, read_json, write_json
 from .platform import process_options, worker_command
@@ -35,7 +36,11 @@ def wake(home: Path) -> None:
     private_dir(home)
     try:
         status = read_json(home / "worker-status.json", 32768)
-        if isinstance(status, dict) and status.get("retry_at", 0) > time.time():
+        if (
+            isinstance(status, dict)
+            and status.get("worker_version") == __version__
+            and status.get("retry_at", 0) > time.time()
+        ):
             return
     except (OSError, ValueError, TypeError):
         pass

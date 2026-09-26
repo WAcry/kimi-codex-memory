@@ -28,7 +28,8 @@ skillInstructions，避免静态/动态内容重复，也不依赖自定义 prof
 Python 3.11+ 标准库覆盖 TOML、SQLite、HTTP、子进程、文件和 JSON。发布包
 自带 Python 运行环境；终端用户不需要 Python 或 pip。Windows 使用 msvcrt
 锁、进程树回收与原子文件替换，不依赖 POSIX 权限位或符号链接。
-OAuth 的原生 Kimi 源码单独打包，由已经安装的 Kimi 的 Node 运行时执行。
+OAuth 和模型请求器的原生 Kimi 源码分别打包，由已安装 Kimi 的 Node
+运行时执行；不启动完整 coding agent 或额外用户会话。
 
 ## 代码职责
 
@@ -39,7 +40,8 @@ OAuth 的原生 Kimi 源码单独打包，由已经安装的 Kimi 的 Node 运�
 | `server`, `http`, `kimi` | 原生服务管理、认证、界面契约与分页 |
 | `evidence`, `citations` | 证据来源、预算、尽力脱敏、引用解析 |
 | `store` | 摘要元数据、租约、引用收据与发布意图 |
-| `models`, `model_config`, `responses`, `oauth` | 默认模型解析、三种协议与原生 OAuth 桥接 |
+| `models`, `model_config`, `requester`, `oauth` | 默认模型解析、原生模型/OAuth 私有管道桥接 |
+| `scan`, `issues`, `extraction_output` | 逐来源隔离、有限诊断、最终输出验证 |
 | `platform` | Windows/POSIX 锁之外的进程、可执行文件和 npm shim 边界 |
 | `worker` | 引用同步、提取、合并和危险操作门禁 |
 | `workspace` | 文件物化、diff、受限工具与发布恢复 |
@@ -85,8 +87,10 @@ current.json 是唯一发布入口；缺失时表示尚未发布，不读取其�
 `reader_available` 表示设计上读取未被关闭，不是保证磁盘永不损坏。文件本身
 丢失或用户主动关闭 reader，是另一类问题。
 
-模型失败保留最后发布版本。引用同步不完整时，不能用“本次没有看到使用”
-作为过期证据。生成请求错误不允许通过 hook exit code 2 阻断前台。
+单来源模型失败保留该来源旧结果，其他来源仍可生成/合并；合并失败保留
+最后发布版本。引用同步不完整时，不能用“本次没有看到使用”作为过期
+证据，但可做保留旧选集的合并。degraded 表示局部失败仍有正常工作，
+paused 表示这次 writer 整体无法继续。详见 DESIGN 08。
 
 默认是机会式唤醒，不承诺关闭所有 Kimi 进程后仍有精确定时任务。一个短期
 worker 合并已到达的通知，使用每-home 文件锁避免多个生成实例竞争。

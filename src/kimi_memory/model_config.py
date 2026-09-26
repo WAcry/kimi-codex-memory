@@ -189,6 +189,10 @@ def resolve_connection(
     if config.max_output_tokens > 0:
         output_size = min(output_size, config.max_output_tokens)
     output_size = min(output_size, max(1, context - 1024))
+    thinking = mapping(runtime.get("thinking", raw.get("thinking", {})), "thinking")
+    overrides = mapping(
+        runtime.get("model_overrides", raw.get("model_overrides", {})), "model overrides"
+    )
     return Connection(
         model_origin(base),
         wire_name,
@@ -205,6 +209,25 @@ def resolve_connection(
         {
             k: v
             for k, v in record.items()
-            if k in {"default_effort", "reasoning_key", "capabilities", "adaptive_thinking"}
+            if k
+            in {
+                "default_effort",
+                "support_efforts",
+                "off_effort",
+                "reasoning_key",
+                "capabilities",
+                "adaptive_thinking",
+            }
+        }
+        | {
+            "thinking_defaults": {
+                "enabled": thinking.get("enabled"),
+                "effort": os.environ.get("KIMI_MODEL_THINKING_EFFORT")
+                or thinking.get("forced_effort")
+                or thinking.get("effort"),
+            },
+            "thinking_keep": os.environ.get("KIMI_MODEL_THINKING_KEEP")
+            or overrides.get("thinking_keep")
+            or thinking.get("keep"),
         },
     )

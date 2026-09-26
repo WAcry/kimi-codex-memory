@@ -88,6 +88,13 @@ Windows 的原生刷新协调维持上游 best-effort 语义；没有另行承�
 
 ## 注入时机追踪
 
+模型请求层另以 [kimi_requester] 指定的 Kimi commit 和
+vendor/kimi-requester/files.json 记录 35 个原样源码文件，包含三种
+底层 requester、消息解析、thinking 和 Kimi traits。没有 vendoring
+整个 engine、配置服务或工具 runner；协议以原生代码为准，记忆输出
+验证与调度仍在本项目。SDK/代理依赖锁定并附带实际 bundle 的许可证。
+详情与明确边界见 DESIGN 08。
+
 v2 的 ContextContributor 是 thread-context contributor，不是每 turn
 的动态记忆刷新。完整上下文构建才读取摘要；缺失文件不贡献 memory prompt。
 正常 resume 复用历史 baseline，compact 会重建它。首次生成不会主动通知

@@ -168,15 +168,26 @@ def serve(callback):
                 body = {key: values[0] for key, values in parse_qs(raw.decode()).items()}
             else:
                 body = json.loads(raw) if size else None
-            requests.append((self.command, self.path, body, dict(self.headers)))
-            status, payload, *extra = callback(self.command, self.path, body, dict(self.headers))
+            headers = {name.title(): value for name, value in self.headers.items()}
+            requests.append((self.command, self.path, body, headers))
+            status, payload, *extra = callback(self.command, self.path, body, headers)
+            streaming = status == 200 and isinstance(body, dict) and body.get("stream") is True
+            if streaming:
+                from provider_stream import stream_response
+
+                raw = stream_response(self.path, payload)
+            else:
+                raw = json.dumps(payload).encode()
             self.send_response(status)
-            self.send_header("Content-Type", "application/json")
+            self.send_header(
+                "Content-Type", "text/event-stream" if streaming else "application/json"
+            )
+            self.send_header("Content-Length", str(len(raw)))
             if extra:
                 for name, value in extra[0].items():
                     self.send_header(name, value)
             self.end_headers()
-            self.wfile.write(json.dumps(payload).encode())
+            self.wfile.write(raw)
 
         do_GET = dispatch
         do_POST = dispatch

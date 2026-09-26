@@ -7,6 +7,20 @@ source_commit = "a1e4c13d411f75bd327e2c33077daff42ee63582"
 product_version = "2.1.0"
 transcript_contract = "native-main-agent-current"
 
+[kimi_requester]
+source_commit = "be7d5f5fea7800778e4660cd5f36780ba783bddd"
+repository = "https://github.com/MoonshotAI/kimi-code"
+files_manifest = "vendor/kimi-requester/files.json"
+license_path = "vendor/kimi-requester/LICENSE"
+license_sha256 = "23cc68e17992e0b512ae2e80afc5787d7d8e0fbfbdb4fff54ec0245508fa400e"
+
+[standardwebhooks_license]
+source_commit = "b4d2c14fc5b4ccff3ff271e3b087dff812254c59"
+repository = "https://github.com/standard-webhooks/standard-webhooks"
+upstream_path = "libraries/LICENSE"
+path = "vendor/kimi-requester/licenses/standardwebhooks-LICENSE"
+sha256 = "5ec8c7b26b64d881a6706617bed25c049f97f2f35de034c756de8546fd6dbe27"
+
 [[files]]
 path = "vendor/codex/memories/stage_one_system_v2.md"
 runtime_path = "src/kimi_memory/prompts/stage_one_system_v2.md"

@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from .config import ApiConfig
-from .errors import CompatibilityError, IncompleteHistoryError, TransportError
+from .errors import CompatibilityError, IncompleteHistoryError, MissingSessionError, TransportError
 from .files import digest
 from .http import JsonHttp, local_origin
 
@@ -19,7 +19,7 @@ def timestamp(value: object) -> float:
         if result.tzinfo is None:
             raise ValueError("missing timezone")
         return result.timestamp()
-    except ValueError as exc:
+    except (ValueError, OverflowError, OSError) as exc:
         raise CompatibilityError("Invalid timestamp in Kimi response") from exc
 
 
@@ -126,8 +126,21 @@ class KimiClient:
     def get(self, path: str):
         envelope = obj(self.raw_get(path), "API envelope")
         if type(envelope.get("code")) is not int or envelope["code"] != 0:
-            raise TransportError("Kimi API returned a non-success envelope")
+            error = TransportError("Kimi API returned a non-success envelope")
+            if type(envelope.get("code")) is int:
+                error.api_code = envelope["code"]
+            raise error
         return envelope.get("data")
+
+    def _session_get(self, path: str):
+        try:
+            return self.get(path)
+        except TransportError as exc:
+            # Native REST commonly returns HTTP 200 with code=40401. Authentication,
+            # timeout and other missing entities are not proof of a deleted session.
+            if exc.api_code == 40401 or exc.status in {404, 410}:
+                raise MissingSessionError("Kimi session is no longer available") from exc
+            raise
 
     def handshake(self, expected_id: str | None = None) -> None:
         data = obj(self.get("/api/v1/meta"), "meta")
@@ -144,37 +157,72 @@ class KimiClient:
             if not isinstance(paths.get(path), dict) or "get" not in paths[path]:
                 raise CompatibilityError("Required Kimi history route is unavailable")
 
-    def sessions(self, *, since: float, limit: int) -> list[Source]:
+    def sessions(self, *, since: float, limit: int, on_error=None) -> list[Source]:
         result: list[Source] = []
         seen: set[str] = set()
+        cursors: set[str] = set()
         cursor = None
+        scanned = 0
+
+        def report(error, identity=None):
+            if on_error is None:
+                raise error
+            on_error(error, identity)
+
         while True:
             query: dict[str, Any] = {"page_size": self.config.page_size, "include_archive": "true"}
             if cursor:
                 query["before_id"] = cursor
-            page = obj(self.get("/api/v1/sessions?" + urlencode(query)), "session page")
-            entries = array(page.get("items"), "sessions")
-            more = page.get("has_more")
-            if type(more) is not bool or (more and not entries):
-                raise IncompleteHistoryError("Invalid session pagination")
+            try:
+                page = obj(self.get("/api/v1/sessions?" + urlencode(query)), "session page")
+                entries = array(page.get("items"), "sessions")
+                more = page.get("has_more")
+                if type(more) is not bool or (more and not entries):
+                    raise IncompleteHistoryError("Invalid session pagination")
+            except (CompatibilityError, IncompleteHistoryError, TransportError) as exc:
+                report(exc)
+                return result
             for item in entries:
-                source = Source.from_json(item)
+                try:
+                    source = Source.from_json(item)
+                except (CompatibilityError, TypeError, ValueError) as exc:
+                    identity = item.get("id") if isinstance(item, dict) else None
+                    report(exc, identity if isinstance(identity, str) else None)
+                    scanned += 1
+                    if scanned >= limit:
+                        report(IncompleteHistoryError("Session scan cap reached"))
+                        return result
+                    continue
                 if source.id in seen:
-                    raise IncompleteHistoryError("Session pagination moved or repeated")
+                    report(
+                        IncompleteHistoryError("Session pagination moved or repeated"), source.id
+                    )
+                    continue
                 seen.add(source.id)
                 if source.updated_at < since:
                     return result
-                result.append(source)
-                if len(result) > limit:
-                    raise IncompleteHistoryError(
-                        "Session scan cap reached before the retention horizon"
+                if scanned >= limit:
+                    report(
+                        IncompleteHistoryError(
+                            "Session scan cap reached before the retention horizon"
+                        )
                     )
+                    return result
+                scanned += 1
+                result.append(source)
             if not more:
                 return result
-            cursor = Source.from_json(entries[-1]).id
+            try:
+                cursor = string(obj(entries[-1], "session").get("id"), "session cursor")
+                if cursor in cursors:
+                    raise IncompleteHistoryError("Session cursor did not advance")
+                cursors.add(cursor)
+            except (CompatibilityError, IncompleteHistoryError) as exc:
+                report(exc)
+                return result
 
     def source(self, source_id: str) -> Source:
-        data = self.get("/api/v1/sessions/" + quote(source_id, safe=""))
+        data = self._session_get("/api/v1/sessions/" + quote(source_id, safe=""))
         source = Source.from_json(data)
         if source.id != source_id:
             raise CompatibilityError("Session identity mismatch")
@@ -194,7 +242,7 @@ class KimiClient:
             if before:
                 query["before_turn"] = before
             page = obj(
-                self.get(
+                self._session_get(
                     "/api/v1/sessions/"
                     + quote(source.id, safe="")
                     + "/transcript?"
@@ -224,7 +272,19 @@ class KimiClient:
                 if len(turn_ids) != len(set(turn_ids)):
                     raise IncompleteHistoryError("Overlapping transcript pages")
                 current = self.source(source.id)
-                if current.updated_at != source.updated_at or current.busy != source.busy:
+                if (
+                    current.updated_at,
+                    current.busy,
+                    current.archived,
+                    current.cwd,
+                    current.workspace_id,
+                ) != (
+                    source.updated_at,
+                    source.busy,
+                    source.archived,
+                    source.cwd,
+                    source.workspace_id,
+                ):
                     raise IncompleteHistoryError("Session changed during history read")
                 return Transcript(source, all_items, **global_data)
             turns = [item for item in items if item["kind"] == "turn"]

@@ -7,7 +7,6 @@ from kimi_memory.files import atomic_write, published_root
 from kimi_memory.kimi import KimiClient
 from kimi_memory.model_config import resolve_connection
 from kimi_memory.models import Model
-from kimi_memory.responses import responses_body, responses_result
 from kimi_memory.worker import run_pass
 
 
@@ -155,63 +154,6 @@ def test_unknown_api_configuration_is_reported(home):
         load_worker_config(home)
 
 
-def test_responses_replays_reasoning_calls_and_call_results(tmp_path):
-    connection = resolve_connection(
-        ModelConfig(base_url="https://example.test/v1", model="test", protocol="openai_responses"),
-        home=tmp_path,
-    )
-    output = [
-        {"type": "reasoning", "id": "rs1", "summary": [], "encrypted_content": "opaque"},
-        {
-            "type": "function_call",
-            "id": "fc1",
-            "call_id": "call1",
-            "name": "read_file",
-            "arguments": "{}",
-        },
-    ]
-    response = responses_result({"status": "completed", "output": output})
-    messages = [
-        {"role": "system", "content": "rules"},
-        {"role": "user", "content": "task"},
-        response,
-        {"role": "tool", "tool_call_id": "call1", "content": "evidence"},
-    ]
-    body = responses_body(messages, None, connection, False)
-    assert body["store"] is False
-    assert body["include"] == ["reasoning.encrypted_content"]
-    assert body["input"][1:3] == output
-    assert body["input"][-1] == {
-        "type": "function_call_output",
-        "call_id": "call1",
-        "output": "evidence",
-    }
-    assert "previous_response_id" not in body
-
-
-@pytest.mark.parametrize(
-    "response",
-    [
-        {"status": "incomplete", "output": []},
-        {"status": "failed", "output": []},
-        {"status": "completed", "output": [{"type": "computer_call"}]},
-        {
-            "status": "completed",
-            "output": [
-                {
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [{"type": "refusal", "refusal": "no"}],
-                }
-            ],
-        },
-    ],
-)
-def test_unusable_responses_are_not_empty_memory(response):
-    with pytest.raises(ModelError):
-        responses_result(response)
-
-
 def test_zero_configuration_full_responses_pipeline(
     home, config, transcript, tmp_path, monkeypatch
 ):
@@ -224,7 +166,10 @@ def test_zero_configuration_full_responses_pipeline(
         messages = [{"role": "system", "content": body["instructions"]}]
         for item in body["input"]:
             if item.get("type") == "function_call_output":
-                messages.append({"role": "tool", "content": item["output"]})
+                content = item["output"]
+                if isinstance(content, list):
+                    content = "".join(part.get("text", "") for part in content)
+                messages.append({"role": "tool", "content": content})
             elif item.get("role") in {"user", "assistant"} and isinstance(item.get("content"), str):
                 messages.append(item)
         result = scripted.complete(messages, tools=body.get("tools"))

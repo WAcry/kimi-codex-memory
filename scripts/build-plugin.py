@@ -55,6 +55,9 @@ def main():
         ignore=shutil.ignore_patterns("__pycache__", "hook.py"),
     )
     shutil.copytree(ROOT / "vendor/codex", target / "vendor/codex", dirs_exist_ok=True)
+    shutil.copytree(
+        ROOT / "vendor/kimi-requester", target / "vendor/kimi-requester", dirs_exist_ok=True
+    )
     binary = (
         destination
         / "kimi-codex-memory"

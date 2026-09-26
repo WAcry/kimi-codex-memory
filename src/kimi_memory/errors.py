@@ -19,10 +19,21 @@ class IncompleteHistoryError(MemoryErrorBase):
 
 class TransportError(MemoryErrorBase):
     code = "transport_error"
+    status: int | None = None
+    api_code: int | None = None
+    unavailable = False
+
+
+class MissingSessionError(TransportError):
+    code = "session_unavailable"
 
 
 class ModelError(MemoryErrorBase):
     code = "model_error"
+
+
+class ExtractionOutputError(ModelError):
+    code = "invalid_extraction_output"
 
 
 class LeaseLostError(MemoryErrorBase):

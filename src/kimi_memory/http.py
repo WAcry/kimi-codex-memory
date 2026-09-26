@@ -1,5 +1,6 @@
 """Bounded JSON HTTP without credential-bearing redirects or implicit proxies."""
 
+import http.client
 import ipaddress
 import json
 import urllib.error
@@ -92,6 +93,10 @@ class JsonHttp:
             error.status = exc.code
             raise error from None
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            raise TransportError("HTTP service unavailable or timed out") from exc
+            error = TransportError("HTTP service unavailable or timed out")
+            error.unavailable = True
+            raise error from exc
+        except http.client.HTTPException as exc:
+            raise TransportError("HTTP service returned an incomplete response") from exc
         except (ValueError, UnicodeError) as exc:
             raise TransportError("HTTP service returned invalid JSON") from exc

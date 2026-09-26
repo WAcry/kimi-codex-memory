@@ -6,6 +6,7 @@
 uv sync --locked --group dev --default-index https://pypi.org/simple
 npm ci --ignore-scripts --registry=https://registry.npmjs.org
 npm run build:auth
+node scripts/build-model.mjs
 uv run --no-sync python -m pytest -q
 uv run --no-sync ruff check .
 uv run --no-sync ruff format --check .
@@ -19,6 +20,9 @@ CI 在 Windows、macOS、Linux 的 x64/ARM64 上执行原生测试和冻结包�
 发布包移到含空格及中文的目录后，移除 PATH 上的 Python/Node，验证 hook、
 注入和 frozen worker。模拟服务验证三种模型接口、token 续期、401 恢复、
 429 静默失败；模拟测试不能证明任意实际供应商的计费和模型质量。
+低层 model requester、messages/thinking 转换直接复用固定上游源码，
+构建后同样核对 bundle/hash。三协议均测试流式完成、错误、工具回传，
+并通过 frozen worker 验证部署中可以调用，不仅测试开发 Python 进程。
 原生 prompt 测试还截获真实 Kimi 发送给本地脚本模型的请求，分别验证
 默认模板、未包含 plugin_sections 的 SYSTEM.md、继承 base_prompt 的
 SYSTEM.md、普通 resume、空记忆和禁用插件；检查完整上下文里只有一份

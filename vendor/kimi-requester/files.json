@@ -1,0 +1,177 @@
+[
+  {
+    "path": "vendor/kimi-requester/human/llm-kimi/schema.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm-kimi/schema.ts",
+    "sha256": "c8cf9f5e2324e493219e83ce12a8af61eea94d6a15dd4369125a40ea83ac18cc"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm-kimi/trait.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm-kimi/trait.ts",
+    "sha256": "7121096092aad9ca52433cdde30c6e2a6785f0a01d44bf2d6def88f912a99e95"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/capability.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/capability.ts",
+    "sha256": "21256c5f6772e5a25e4905cd6cfe52f6b1bedbcff30347cc18d10685953d17ba"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/errors.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/errors.ts",
+    "sha256": "af063506b015215d8000ac65b03813d94a1ac3ea47a137167345287997f39f8d"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/finish-reason.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/finish-reason.ts",
+    "sha256": "e5b3eb09d8f307350f252057b01340aa3c64120ce7e5fececf4f02b9c0bd68b8"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/media/image-formats.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/media/image-formats.ts",
+    "sha256": "fafef16a87adcd957688ad732a71766a33290ae3b416590eab4b812fcb59f8c6"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/message.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/message.ts",
+    "sha256": "617f2964b97fd5227a031f14c1b01d377ec36bad9cad74f92b990c9919241764"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/model.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/model.ts",
+    "sha256": "3ec99e356742e06658ee5d5702a88ae38dcc1ea51135f378d5f710494dec0175"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/protocol/connection.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/protocol/connection.ts",
+    "sha256": "22570f9ca4297b56b9b8310b6bc3711f6022fe26e2fe351785bd762d003dba36"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/protocol/format.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/protocol/format.ts",
+    "sha256": "bd316f1e6dc04203ecadd9fc98438da0a7197c0f522f0e3d888eb7a431dcb5b0"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/protocol/patterns.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/protocol/patterns.ts",
+    "sha256": "94fb9775a345e3cd0109c4544d09ff79d09427d98751c29783135e07e16f477c"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/protocol/rewrite.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/protocol/rewrite.ts",
+    "sha256": "d37a5604954ad31c435ace116817f7911cdf6cdb0d1362a8d51db84674fb52d0"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/protocol/thinking.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/protocol/thinking.ts",
+    "sha256": "80825dc4ba3ea58cd71d399e601e375d83fe31efde19586de567835e3855894c"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/anthropic/capability.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/anthropic/capability.ts",
+    "sha256": "4064a57d4da745141a2aa5b654c12cc7056535609cdf0919da5cd110d67d963e"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/anthropic/contract.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/anthropic/contract.ts",
+    "sha256": "13051377e0c7c9d22d8836a3423e938f691ce60cfb124ec94e25428ac28d69b4"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/anthropic/format.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/anthropic/format.ts",
+    "sha256": "579315da5b66ec24989b0cbd090fa17c9469823dd5d24cbdb1a714d846c7f0bf"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/anthropic/lower.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/anthropic/lower.ts",
+    "sha256": "16b408f48fa8cc257383e298b39e525eb7305587b5e37ff5f869c9924f8225ac"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/anthropic/patterns.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/anthropic/patterns.ts",
+    "sha256": "592d8ac161029ef69cce0f0c77dd84bc7e7b3f4f3d948e5bd38976b6d4467479"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/anthropic/profile.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/anthropic/profile.ts",
+    "sha256": "678e6add06dc298701e6d288e29c663b9141ea4f6fac210287dc015398f9a922"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/anthropic/requester.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/anthropic/requester.ts",
+    "sha256": "9c55d3351e1229cba3dda5df57e36d44d691432971680edcbe59fe30f7a0ecc5"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/openai-responses/capability.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/openai-responses/capability.ts",
+    "sha256": "d7e089432524b3cf2db40a266bab815654eddb719b9f13eec050ba3bbe92dbcb"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/openai-responses/format.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/openai-responses/format.ts",
+    "sha256": "2aabf224544e5608af2398713c1aa2c826bc830eb14abf0a33354e7f5846d1a4"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/openai-responses/lower.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/openai-responses/lower.ts",
+    "sha256": "32492a4abfb5b1cdd2cdf9bbef6c1117236559382a48d8bd836b8231527c6e33"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/openai-responses/requester.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/openai-responses/requester.ts",
+    "sha256": "e5aec88368e0fab33898741c3ba5dbe14134860d0d61f552509936d6d3f2529d"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/openai/capability.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/openai/capability.ts",
+    "sha256": "245951cfc40cb4cc739a20403f98c3d6d1432ce84004191f40401f03f8d8fd49"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/openai/format.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/openai/format.ts",
+    "sha256": "2372ca6d6f0608e1bff818c210a251db8a1b43e5ac4baaa9c87b3d2271b0cbe7"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/openai/lower.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/openai/lower.ts",
+    "sha256": "781fad6d0258cb50b64a83320fc0a6624b3e8c3c98dbccab4b071c122960ba69"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/openai/patterns.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/openai/patterns.ts",
+    "sha256": "7ca94c022ab2e6d270e4bd0392f3a01b5035af2811c41f07439c69731dd172e6"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/openai/reasoning-key.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/openai/reasoning-key.ts",
+    "sha256": "c200be36551fc9272b74e73b1fb871d312bd1a3c1cd01ae6928c194fdd89067d"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/openai/requester.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/openai/requester.ts",
+    "sha256": "b656cc63b0767df00dbddf5027b37b18817a847859802ec4b645188360b3e699"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/tool-call-id.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/tool-call-id.ts",
+    "sha256": "d5250d214b69d80f09f0121d645c6da428dd1832a47c3a7273caad3270f66bd5"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/bases/tool-result-text.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/bases/tool-result-text.ts",
+    "sha256": "4835bfe2cd90fb273e7b2e88d1454eb63375ddb9b4b8dd3a6e851ee9e42b29f7"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/requester/requester.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/requester/requester.ts",
+    "sha256": "c05fc09b333ca267b24053df0c2149630f504032945df6ccb8b36cc69e9bee22"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/syntax-errors.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/syntax-errors.ts",
+    "sha256": "c4ab943c197c6ff1f8ba8cc229ac064b797e61dde63efcf4b6ca2bed445f17ef"
+  },
+  {
+    "path": "vendor/kimi-requester/human/llm/thinking.ts",
+    "upstream_path": "packages/agent-core-v2/src/human/llm/thinking.ts",
+    "sha256": "16980aef4d2b4e0aa94e8ddcb6273c4dcca060fae5a053a220b457354d2907ae"
+  }
+]

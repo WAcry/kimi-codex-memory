@@ -1,5 +1,6 @@
 """Borrow a compatible Kimi server or own one short-lived loopback helper."""
 
+import math
 import os
 import subprocess
 import time
@@ -30,10 +31,13 @@ def live_instances(home: Path) -> list[dict]:
                 continue
             if not isinstance(data.get("server_id"), str):
                 continue
+            stamp = data.get("started_at", 0)
+            if type(stamp) not in (int, float) or not math.isfinite(stamp):
+                continue
             if not process_alive(pid):
                 continue
             instances.append(data)
-        except (OSError, ValueError):
+        except (OSError, ValueError, OverflowError, TypeError):
             continue
     return sorted(instances, key=lambda item: item.get("started_at", 0), reverse=True)
 
@@ -45,6 +49,7 @@ class ServerManager:
         self.child: subprocess.Popen | None = None
         self.client: KimiClient | None = None
         self.borrowed = False
+        self.cleanup_error: Exception | None = None
 
     def token(self) -> str:
         path = self.home / "server.token"
@@ -152,7 +157,10 @@ class ServerManager:
         child, self.child = self.child, None
         if child is None or child.poll() is not None:
             return
-        stop_owned(child)
+        try:
+            stop_owned(child)
+        except (OSError, subprocess.SubprocessError) as exc:
+            self.cleanup_error = exc  # A cleanup race does not invalidate a captured snapshot.
 
     def __enter__(self):
         return self.connect()

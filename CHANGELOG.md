@@ -1,3 +1,20 @@
+# 1.0.2
+
+- Isolate missing, archived, malformed or concurrently changed sessions at every
+  history-read boundary, including native HTTP-200 not-found envelopes. Keep
+  useful work when one source, citation timestamp, extraction or note fails.
+- Preserve the prior selected memories and defer expiration when citation
+  coverage is incomplete; healthy sources and explicit notes can still merge.
+  New activity no longer blocks non-evicting publication.
+- Use validated snapshots during model work, acknowledge queue items per source,
+  and make cleanup failures non-fatal after a successful publication.
+- Reuse pinned native Kimi Chat/Responses/Anthropic streaming requesters, thinking
+  configuration and message codecs instead of separate Python wire adapters.
+  Final extraction accepts exact JSON or one complete JSON fence, never thoughts.
+- New requester versions rearm failed extraction budgets once without regenerating
+  successful memories. Existing configuration, database and published data remain
+  compatible; failures never disable the offline reader.
+
 # 1.0.1
 
 - Before the first usable memory summary, inject only short explicit-note

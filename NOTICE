@@ -15,6 +15,12 @@ Original sources/license are in vendor/kimi-oauth; bundled runtime notices are i
 src/kimi_memory/native. Build-time bundling also includes proper-lockfile and its
 MIT/ISC-licensed dependencies; their licenses accompany the bundle.
 
+The model bridge reuses unmodified Kimi Code low-level streaming requesters,
+message codecs, thinking configuration and Kimi protocol traits. The pinned
+source files and MIT license are preserved in vendor/kimi-requester. This is
+not a bundled Kimi application or coding agent. MODEL-THIRD-PARTY-NOTICES in
+src/kimi_memory/native covers bundled SDK and transport dependencies.
+
 Native plugin runtimes embed CPython and the unmodified PyInstaller bootloader.
 Their redistribution terms, including the PyInstaller bootloader exception,
 are included in each platform runtime's licenses directory.

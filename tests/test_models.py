@@ -36,7 +36,8 @@ def test_openai_request_and_strict_completion_reason():
             ],
             json_mode=True,
         )
-    assert result == {"role": "assistant", "content": '{"ok":true}'}
+    assert result["role"] == "assistant" and result["content"] == '{"ok":true}'
+    assert result["_native_message"]["content"] == [{"type": "text", "text": '{"ok":true}'}]
 
 
 @pytest.mark.parametrize("finish", ["length", "content_filter", None])

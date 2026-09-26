@@ -7,7 +7,7 @@ from conftest import NativeApi, ScriptModel, seed_published, serve, turn
 from test_evidence import BLOCK
 from test_store import save
 
-from kimi_memory.errors import CompatibilityError, ModelError
+from kimi_memory.errors import ModelError
 from kimi_memory.files import write_json
 from kimi_memory.hooks import handle
 from kimi_memory.kimi import KimiClient
@@ -88,14 +88,15 @@ def test_citation_sync_before_idle_generation_and_retention(home, config, transc
 
 def test_generation_failure_preserves_old_memory_and_hooks(home, config, transcript):
     old = seed_published(home)
-    with serve(NativeApi([transcript])) as (origin, _), pytest.raises(ModelError):
-        run_pass(
+    with serve(NativeApi([transcript])) as (origin, _):
+        result = run_pass(
             home,
             config,
             [],
             client=KimiClient(origin, lambda: "test-native-token-never-log", config.api),
             models=(ScriptModel(fail=True), ScriptModel()),
         )
+    assert result["state"] == "degraded" and result["extractions"] == ["failed"]
     assert current_generation(home) == old
     assert (
         "Previously published"
@@ -112,8 +113,8 @@ def test_broken_api_never_prunes_or_overwrites_old_memory(home, config, transcri
     page = copy.deepcopy(transcript.items)
     page[0]["origin"]["kind"] = "new-schema-origin"
     server.transcripts[transcript.source.id] = replace(transcript, items=page)
-    with serve(server) as (origin, _), pytest.raises(CompatibilityError):
-        run_pass(
+    with serve(server) as (origin, _):
+        result = run_pass(
             home,
             config,
             [],
@@ -125,6 +126,8 @@ def test_broken_api_never_prunes_or_overwrites_old_memory(home, config, transcri
         assert store.stats()["summaries"] == 1
     finally:
         store.close()
+    assert result["state"] == "degraded" and result["retention_deferred"]
+    assert result["pruned"] == 0
     assert current_generation(home) == old
 
 
@@ -162,8 +165,9 @@ def test_new_hook_notifications_delay_retention(home, config, transcript):
             client=KimiClient(origin, lambda: "test-native-token-never-log", config.api),
             models=(ScriptModel(), ScriptModel()),
         )
-    assert result["state"] == "pending_citations"
-    assert current_generation(home) == old
+    assert result["state"] == "ready" and result["retention_deferred"]
+    assert result["pruned"] == 0 and result["extractions"] == ["extracted"]
+    assert current_generation(home) != old
 
 
 def test_bad_extraction_json_does_not_write_memory(home, config, transcript):

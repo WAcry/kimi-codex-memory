@@ -1,6 +1,7 @@
 """Durable metadata, fenced generation jobs, and citation receipts (no raw history)."""
 
 import json
+import math
 import os
 import sqlite3
 import threading
@@ -192,7 +193,7 @@ class Store:
         updated = 0
         with self.transaction() as db:
             for use in uses:
-                if use.used_at > now + 300:
+                if not math.isfinite(use.used_at) or use.used_at > now + 300:
                     raise ConfigurationError("Citation completion time is in the future")
                 for source_id in sorted(use.source_ids):
                     inserted = db.execute(
@@ -234,6 +235,25 @@ class Store:
                 return False
         return True
 
+    def prepare_extraction_requester(self, revision: str, attempts: int) -> None:
+        """New requester code gets one fresh retry budget; successful sources stay put."""
+        with self.transaction() as db:
+            old = db.execute(
+                "SELECT value FROM runtime_metadata WHERE key='extraction_requester'"
+            ).fetchone()
+            if old is not None and old[0] == revision:
+                return
+            db.execute(
+                """UPDATE jobs SET attempts_left=?,retry_after=0 WHERE job_key LIKE 'extract:%'
+                   AND owner IS NULL AND error_code IS NOT NULL
+                   AND (success_version IS NULL OR success_version<>source_version)""",
+                (attempts,),
+            )
+            db.execute(
+                "INSERT OR REPLACE INTO runtime_metadata VALUES ('extraction_requester',?)",
+                (revision,),
+            )
+
     def scanned(self, source: Source, version: str, now: float) -> None:
         with self.transaction() as db:
             db.execute(
@@ -242,25 +262,37 @@ class Store:
                 (source.id, source.updated_at, version, now),
             )
 
-    def selected(self, *, cutoff: float, limit: int, accept=None) -> list[dict]:
+    def has_summary(self, source_id: str) -> bool:
+        with self.lock:
+            return (
+                self.db.execute(
+                    "SELECT 1 FROM summaries WHERE source_id=?", (source_id,)
+                ).fetchone()
+                is not None
+            )
+
+    def selected(
+        self, *, cutoff: float, limit: int, accept=None, preserve: bool = False
+    ) -> list[dict]:
         if limit <= 0:
             return []
         with self.lock:
             cursor = self.db.execute(
                 """SELECT * FROM summaries
-                WHERE COALESCE(last_usage,source_updated_at)>=?
-                ORDER BY COALESCE(usage_count,0) DESC,COALESCE(last_usage,source_updated_at) DESC,
+                WHERE COALESCE(last_usage,source_updated_at)>=? OR (? AND selected=1)
+                ORDER BY CASE WHEN ? THEN selected ELSE 0 END DESC,
+                    COALESCE(usage_count,0) DESC,COALESCE(last_usage,source_updated_at) DESC,
                     source_updated_at DESC,source_id DESC""",
-                (cutoff,),
+                (cutoff, preserve, preserve),
             )
             rows = []
             for record in cursor:
                 row = dict(record)
                 if accept is not None and not accept(row):
                     continue
-                rows.append(row)
-                if len(rows) >= limit:
+                if len(rows) >= limit and not (preserve and row["selected"]):
                     break
+                rows.append(row)
             cursor.close()
         return sorted(rows, key=lambda row: row["source_id"])
 

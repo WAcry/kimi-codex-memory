@@ -1,12 +1,17 @@
 {
   "name": "kimi-codex-memory-build",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "scripts": {
-    "build:auth": "node scripts/build-auth.mjs"
+    "build:auth": "node scripts/build-auth.mjs",
+    "build:model": "node scripts/build-model.mjs"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "0.95.2",
     "esbuild": "0.28.2",
-    "proper-lockfile": "4.1.2"
+    "openai": "6.34.0",
+    "proper-lockfile": "4.1.2",
+    "radashi": "12.9.1",
+    "undici": "7.27.1"
   }
 }

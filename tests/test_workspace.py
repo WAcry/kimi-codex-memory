@@ -5,7 +5,7 @@ import pytest
 from conftest import ScriptModel, seed_published, valid_summary
 from test_store import save
 
-from kimi_memory.errors import LeaseLostError, ModelError, ResyncRequired, UnsafePathError
+from kimi_memory.errors import LeaseLostError, ModelError, ResyncRequired
 from kimi_memory.files import atomic_write, published_root
 from kimi_memory.reader import render
 from kimi_memory.store import Store
@@ -122,8 +122,13 @@ def test_symlink_notes_are_never_followed(home, config, tmp_path):
     outside = tmp_path / "outside.md"
     atomic_write(outside, "not authorized as a memory source")
     (home / "memories_v2/extensions/ad_hoc/notes/link.md").symlink_to(outside)
-    with pytest.raises(UnsafePathError):
-        Workspace(home, [], config.generation)
+    workspace = Workspace(home, [], config.generation)
+    try:
+        assert "extensions/ad_hoc/notes/link.md" not in workspace.files
+        assert workspace.issues.count == 1
+        assert all("not authorized" not in text for text in workspace.files.values())
+    finally:
+        workspace.close()
 
 
 @pytest.mark.parametrize(
@@ -140,9 +145,11 @@ def test_invalid_summary_cannot_be_published(summary):
         validate_summary(summary, 10000, set())
 
 
-def test_new_events_during_model_work_prevent_publication(home, config, source, store):
-    old = seed_published(home)
+def test_new_events_during_model_work_prevent_source_removal(home, config, source, store):
     save(store, source)
+    phase_two(store, config, home, ScriptModel())
+    old = current_generation(home)
+    save(store, source, "no-longer-useful", summary="")
     with pytest.raises(ResyncRequired):
         phase_two(store, config, home, ScriptModel(), can_publish=lambda: False)
     assert current_generation(home) == old

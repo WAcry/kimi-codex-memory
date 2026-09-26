@@ -36,7 +36,12 @@ def test_quiet_backoff_does_not_spawn_or_block_injection(home, monkeypatch):
 
     seed_published(home)
     monkeypatch.delenv("KIMI_MEMORY_NO_AUTOSTART")
-    write_json(home / "worker-status.json", {"state": "paused", "retry_at": time.time() + 3600})
+    from kimi_memory import __version__
+
+    write_json(
+        home / "worker-status.json",
+        {"state": "paused", "retry_at": time.time() + 3600, "worker_version": __version__},
+    )
 
     def forbidden(*_, **__):
         raise AssertionError("A quiet backoff must not spawn")
@@ -47,6 +52,26 @@ def test_quiet_backoff_does_not_spawn_or_block_injection(home, monkeypatch):
         "Previously published"
         in handle({"hook_event_name": "UserPromptSubmit", "session_id": "s"}, home)["message"]
     )
+
+
+def test_upgrade_is_not_blocked_by_previous_worker_backoff(home, monkeypatch):
+    import time
+
+    from kimi_memory.files import write_json
+
+    monkeypatch.delenv("KIMI_MEMORY_NO_AUTOSTART")
+    write_json(
+        home / "worker-status.json",
+        {
+            "state": "paused",
+            "retry_at": time.time() + 3600,
+            "worker_version": "older-build",
+        },
+    )
+    spawned = []
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: spawned.append(args))
+    wake(home)
+    assert len(spawned) == 1
 
 
 def test_current_schema_reopens_without_resetting_data_or_creating_backups(home, monkeypatch):

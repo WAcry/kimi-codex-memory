@@ -1,9 +1,10 @@
 """Citation output is a model convention; receipts make subsequent replay idempotent."""
 
 import re
+import time
 from dataclasses import dataclass
 
-from .errors import IncompleteHistoryError
+from .errors import IncompleteHistoryError, MemoryErrorBase
 from .files import digest
 from .kimi import Transcript, timestamp
 
@@ -45,8 +46,11 @@ class CitationUse:
     used_at: float
 
 
-def collect_citations(transcript: Transcript) -> list[CitationUse]:
+def collect_citations(
+    transcript: Transcript, *, on_error=None, now: float | None = None
+) -> list[CitationUse]:
     result = []
+    now = time.time() if now is None else now
     prompt_times = {p.get("promptId"): p.get("finishedAt") for p in transcript.prompts}
     for turn in transcript.items:
         if turn.get("kind") != "turn":
@@ -62,25 +66,30 @@ def collect_citations(transcript: Transcript) -> list[CitationUse]:
             source_ids = citation_ids(text)
             if not source_ids:
                 continue
-            ended = (
-                step.get("endedAt")
-                or turn.get("endedAt")
-                or prompt_times.get(turn.get("triggerPromptId"))
-            )
-            if ended is None:
-                raise IncompleteHistoryError(
-                    "Cited assistant output lacks a reliable completion timestamp"
+            try:
+                ended = (
+                    step.get("endedAt")
+                    or turn.get("endedAt")
+                    or prompt_times.get(turn.get("triggerPromptId"))
                 )
-            used_at = timestamp(ended)
-            prompt_id = turn.get("triggerPromptId")
-            # Native cold step IDs are display ordinals, not raw completion UUIDs.
-            # Forked history preserves prompt identity and timestamps. Use those, not the
-            # containing session ID, so copying history cannot create new usage.
-            identity = {
-                "prompt": prompt_id,
-                "ended_at": ended,
-                "ordinal": step.get("ordinal", step["stepId"].rsplit(".", 1)[-1]),
-                "text_hash": digest(text),
-            }
-            result.append(CitationUse(digest(identity), frozenset(source_ids), used_at))
+                if ended is None:
+                    raise IncompleteHistoryError(
+                        "Cited assistant output lacks a reliable completion timestamp"
+                    )
+                used_at = timestamp(ended)
+                if used_at > now + 300:
+                    raise IncompleteHistoryError("Citation completion time is in the future")
+                # Cold step IDs are display ordinals. Forks preserve prompt identity
+                # and time, so exclude the containing session ID from the receipt.
+                identity = {
+                    "prompt": turn.get("triggerPromptId"),
+                    "ended_at": ended,
+                    "ordinal": step.get("ordinal", step["stepId"].rsplit(".", 1)[-1]),
+                    "text_hash": digest(text),
+                }
+                result.append(CitationUse(digest(identity), frozenset(source_ids), used_at))
+            except (MemoryErrorBase, TypeError, ValueError, KeyError) as exc:
+                if on_error is None:
+                    raise
+                on_error(exc)
     return result
