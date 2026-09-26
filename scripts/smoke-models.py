@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from contextlib import closing
 from dataclasses import replace
 from itertools import product
 from pathlib import Path
@@ -263,15 +264,15 @@ api_key_env = "KIMI_MEMORY_API_KEY"
                     "generation"
                 ]
                 assert (home / "_generations" / generation / "memory_summary.md").is_file()
-                with sqlite3.connect(home / "state.sqlite") as db:
+                with closing(sqlite3.connect(home / "state.sqlite")) as db:
                     row = db.execute(
                         "SELECT summary,slug FROM summaries WHERE source_id=?", (source.id,)
                     ).fetchone()
                     assert row == (expected["rollout_summary"].strip(), expected["rollout_slug"])
                 assert not (home / "queue/deleted.json").exists()
-        print(
-            "PASS frozen requester: last valid tool and largest valid final JSON on Chat, Responses, Anthropic; bad/deleted sources isolated; one extraction call; only local synthetic models."
-        )
+    print(
+        "PASS frozen requester: last valid tool and largest valid final JSON on Chat, Responses, Anthropic; bad/deleted sources isolated; one extraction call; only local synthetic models."
+    )
 
 
 if __name__ == "__main__":
