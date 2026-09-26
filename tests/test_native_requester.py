@@ -40,7 +40,11 @@ def test_extraction_never_salvages_a_thought_or_arbitrary_substring(content):
 
 
 @pytest.mark.parametrize("protocol", ["openai", "openai_responses", "anthropic"])
-def test_native_json_extraction_on_three_protocols(tmp_path, protocol):
+def test_native_json_extraction_on_three_protocols(tmp_path, protocol, monkeypatch):
+    # SDK debugging must not leak request bodies or corrupt the private JSON pipe.
+    monkeypatch.setenv("OPENAI_LOG", "debug")
+    monkeypatch.setenv("ANTHROPIC_LOG", "debug")
+
     def callback(method, path, body, headers):
         assert body["stream"] is True
         if protocol == "openai":

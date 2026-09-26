@@ -1,3 +1,9 @@
+# 1.0.3
+
+- Keep SDK debug logging disabled inside the private native-request pipe. User
+  OPENAI_LOG/ANTHROPIC_LOG settings must not contaminate replies or emit request
+  bodies. Includes all session-isolation and native-requester changes in 1.0.2.
+
 # 1.0.2
 
 - Isolate missing, archived, malformed or concurrently changed sessions at every

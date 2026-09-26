@@ -69,7 +69,8 @@ async function main() {
     const thinkingEffort = resolveThinkingEffortForModel(undefined, options.thinking_defaults, model, c.provider_type === 'kimi');
     const thinking = {effort:thinkingEffort, keep:resolveThinkingKeep(undefined, options.thinking_keep, thinkingEffort)};
     const clientOptions = (request: any) => ({
-      apiKey:c.key || 'unused', baseURL:c.base_url, defaultHeaders:request.headers, maxRetries:0, fetch,
+      apiKey:c.key || 'unused', baseURL:c.base_url, defaultHeaders:request.headers,
+      maxRetries:0, logLevel:'off', fetch,
     });
     const trait = c.provider_type === 'kimi' ? kimiOpenAITrait : {};
     const requester = c.protocol === 'openai'
