@@ -1,4 +1,4 @@
-"""Small OpenAI-compatible/Anthropic adapters; never start a user coding session."""
+"""Budgeted native model requests; never start a user coding session."""
 
 import json
 import threading
@@ -79,10 +79,16 @@ class Model:
         return connection
 
     def complete(
-        self, messages: list[dict], *, tools: list[dict] | None = None, json_mode: bool = False
+        self,
+        messages: list[dict],
+        *,
+        tools: list[dict] | None = None,
+        json_mode: bool = False,
+        output_tool: str | None = None,
     ) -> dict:
         connection = self._connection()
-        if estimate_tokens(json.dumps(messages, ensure_ascii=False)) > self.input_budget():
+        payload = {"messages": messages, "tools": tools or []}
+        if estimate_tokens(json.dumps(payload, ensure_ascii=False)) > self.input_budget():
             raise ModelError("Model input budget exceeded; no request was sent")
 
         def scrub(value):
@@ -105,6 +111,7 @@ class Model:
                 json_mode=json_mode and self.config.json_mode,
                 config=self.config,
                 command=self.kimi_command,
+                output_tool=output_tool,
             )
         except ModelError as exc:
             if getattr(exc, "status", None) != 401 or not connection.oauth:
@@ -119,4 +126,5 @@ class Model:
                 json_mode=json_mode and self.config.json_mode,
                 config=self.config,
                 command=self.kimi_command,
+                output_tool=output_tool,
             )

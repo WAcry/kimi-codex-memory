@@ -16,7 +16,7 @@ from .errors import (
     UnsafePathError,
 )
 from .evidence import budget_evidence, normalize, redact
-from .extraction_output import parse_extraction
+from .extraction_output import EXTRACTION_TOOL, extraction_tool, parse_extraction
 from .files import file_lock, memory_home, read_json, utf8_middle, write_json
 from .issues import Issues
 from .kimi import Transcript
@@ -88,10 +88,9 @@ def extract_one(
                     {"role": "system", "content": system},
                     {"role": "user", "content": redact(template)},
                 ],
-                json_mode=True,
+                tools=[extraction_tool()],
+                output_tool=EXTRACTION_TOOL,
             )
-            if response.get("tool_calls"):
-                raise ModelError("Extraction has no tools")
             output = parse_extraction(response)
             summary, slug = (
                 redact(output["rollout_summary"].strip()),

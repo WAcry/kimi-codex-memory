@@ -172,7 +172,9 @@ def serve(callback):
             requests.append((self.command, self.path, body, headers))
             status, payload, *extra = callback(self.command, self.path, body, headers)
             streaming = status == 200 and isinstance(body, dict) and body.get("stream") is True
-            if streaming:
+            if streaming and isinstance(payload, bytes):
+                raw = payload
+            elif streaming:
                 from provider_stream import stream_response
 
                 raw = stream_response(self.path, payload)
@@ -282,22 +284,35 @@ class ScriptModel:
     def ready(self):
         pass
 
-    def complete(self, messages, *, tools=None, json_mode=False):
+    def complete(self, messages, *, tools=None, json_mode=False, output_tool=None):
         from kimi_memory.errors import ModelError
 
         self.calls.append(copy.deepcopy(messages))
         if self.fail:
             raise ModelError("Synthetic model failure")
-        if tools is None:
+        if tools and any(
+            t.get("function", t).get("name") == "submit_memory_extraction" for t in tools
+        ):
             return {
                 "role": "assistant",
-                "content": json.dumps(
+                "content": "",
+                "tool_calls": [
                     {
-                        "rollout_summary": self.summary,
-                        "rollout_slug": "exact-scope" if self.summary else "",
+                        "type": "function",
+                        "id": "extraction-result",
+                        "function": {
+                            "name": "submit_memory_extraction",
+                            "arguments": json.dumps(
+                                {
+                                    "rollout_summary": self.summary,
+                                    "rollout_slug": "exact-scope" if self.summary else "",
+                                }
+                            ),
+                        },
                     }
-                ),
+                ],
             }
+        assert tools is not None, "Extraction requires its result tool, not plain-text JSON"
         tool_messages = [m for m in messages if m["role"] == "tool"]
         count = len(tool_messages)
         if count == 0:

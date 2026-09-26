@@ -5,20 +5,47 @@ import os
 import subprocess
 from dataclasses import asdict
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .errors import ModelError
 from .platform import kimi_command, process_options
 
 
-def native_request(connection, messages, tools, *, json_mode, config, command=()):
+def output_tool_policy(connection, name: str) -> dict:
+    endpoint = urlsplit(connection.base_url)
+    # An OpenAI-compatible protocol or model name is not proof of strict-mode support.
+    strict = (
+        connection.protocol in {"openai", "openai_responses"}
+        and endpoint.scheme == "https"
+        and endpoint.hostname == "api.openai.com"
+        and endpoint.port in (None, 443)
+    )
+    return {"name": name, "strict": strict}
+
+
+def native_request(connection, messages, tools, *, json_mode, config, command=(), output_tool=None):
     entry = Path(__file__).parent / "native/model.mjs"
     if not entry.is_file():
         raise ModelError("The bundled Kimi model requester is unavailable")
+    if output_tool is not None and (
+        not isinstance(output_tool, str)
+        or not output_tool
+        or json_mode
+        or not isinstance(tools, list)
+        or len(tools) != 1
+        or not isinstance(tools[0], dict)
+        or not isinstance(tools[0].get("function"), dict)
+        or tools[0]["function"].get("name") != output_tool
+    ):
+        raise ModelError(
+            "A result submission requires one matching tool and no JSON response format"
+        )
     request = {
         "connection": asdict(connection),
         "messages": messages,
         "tools": tools or [],
         "json_mode": json_mode,
+        "output_tool": output_tool_policy(connection, output_tool) if output_tool else None,
         "timeout_seconds": config.timeout_seconds,
         "max_response_bytes": config.max_response_bytes,
     }

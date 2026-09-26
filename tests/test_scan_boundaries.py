@@ -136,7 +136,7 @@ def test_empty_replacement_during_partial_sync_preserves_other_progress(home, co
     class Selective(ScriptModel):
         def complete(self, messages, **kwargs):
             if "session_id: empty-old" in messages[-1]["content"]:
-                return {"content": '{"rollout_summary":"","rollout_slug":""}'}
+                return ScriptModel(summary="").complete(messages, **kwargs)
             return super().complete(messages, **kwargs)
 
     result, _ = run_with(home, config, callback, models=(Selective(), ScriptModel()))

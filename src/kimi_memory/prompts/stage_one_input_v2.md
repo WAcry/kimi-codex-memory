@@ -1,4 +1,4 @@
-Analyze this session and produce JSON with `rollout_summary` and `rollout_slug`.
+Analyze this session and submit `rollout_summary` and `rollout_slug` using `submit_memory_extraction`.
 
 session_context:
 

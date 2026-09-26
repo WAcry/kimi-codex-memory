@@ -78,6 +78,18 @@ def main():
             script = ScriptModel()
 
             def provider(method, path, body, headers, protocol=protocol, script=script):
+                if not script.calls:
+                    assert len(body["tools"]) == 1
+                    tool = body["tools"][0].get("function", body["tools"][0])
+                    assert tool["name"] == "submit_memory_extraction"
+                    schema = tool.get("parameters", tool.get("input_schema"))
+                    assert set(schema["required"]) == {"rollout_summary", "rollout_slug"}
+                    assert schema["additionalProperties"] is False
+                    assert body["tool_choice"] == (
+                        {"type": "auto"} if protocol == "anthropic" else "auto"
+                    )
+                    assert "response_format" not in body and "output_config" not in body
+                    assert "format" not in body.get("text", {})
                 if protocol == "openai":
                     messages = body["messages"]
                 elif protocol == "openai_responses":
@@ -192,7 +204,7 @@ api_key_env = "KIMI_MEMORY_API_KEY"
                 assert (home / "_generations" / generation / "memory_summary.md").is_file()
                 assert not (home / "queue/deleted.json").exists()
         print(
-            "PASS frozen requester: Chat, Responses, Anthropic end-to-end; bad/deleted sources isolated; only local synthetic models."
+            "PASS frozen requester: terminal result tool on Chat, Responses, Anthropic; bad/deleted sources isolated; one extraction call; only local synthetic models."
         )
 
 

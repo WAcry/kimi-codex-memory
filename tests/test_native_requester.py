@@ -4,43 +4,15 @@ import pytest
 from conftest import serve
 
 from kimi_memory.config import ModelConfig
-from kimi_memory.errors import ExtractionOutputError, ModelError
-from kimi_memory.extraction_output import parse_extraction
+from kimi_memory.errors import ModelError
 from kimi_memory.files import atomic_write
 from kimi_memory.models import Model
 
 OUTPUT = {"rollout_summary": "Verified task evidence", "rollout_slug": "example"}
-FENCE = chr(96) * 3
-
-
-@pytest.mark.parametrize(
-    "wrapper", ["{}", "\ufeff{}", FENCE + "json\n{}\n" + FENCE, FENCE + "\n{}\n" + FENCE]
-)
-def test_extraction_accepts_only_full_final_json_or_a_single_whole_fence(wrapper):
-    assert parse_extraction({"content": wrapper.format(json.dumps(OUTPUT))}) == OUTPUT
-
-
-@pytest.mark.parametrize(
-    "content",
-    [
-        "",
-        None,
-        [],
-        "{}",
-        "[]",
-        "prefix " + json.dumps(OUTPUT),
-        "<think>" + json.dumps(OUTPUT) + "</think>",
-        json.dumps(OUTPUT) + " another object {}",
-        '{"rollout_summary":3,"rollout_slug":"x"}',
-    ],
-)
-def test_extraction_never_salvages_a_thought_or_arbitrary_substring(content):
-    with pytest.raises(ExtractionOutputError):
-        parse_extraction({"content": content, "reasoning_content": json.dumps(OUTPUT)})
 
 
 @pytest.mark.parametrize("protocol", ["openai", "openai_responses", "anthropic"])
-def test_native_json_extraction_on_three_protocols(tmp_path, protocol, monkeypatch):
+def test_optional_native_json_response_format_is_unchanged(tmp_path, protocol, monkeypatch):
     # SDK debugging must not leak request bodies or corrupt the private JSON pipe.
     monkeypatch.setenv("OPENAI_LOG", "debug")
     monkeypatch.setenv("ANTHROPIC_LOG", "debug")
@@ -75,8 +47,10 @@ def test_native_json_extraction_on_three_protocols(tmp_path, protocol, monkeypat
             ModelConfig(base_url=origin + "/v1", model="model", protocol=protocol), home=tmp_path
         )
         assert (
-            parse_extraction(
-                model.complete([{"role": "user", "content": "Return JSON."}], json_mode=True)
+            json.loads(
+                model.complete([{"role": "user", "content": "Return JSON."}], json_mode=True)[
+                    "content"
+                ]
             )
             == OUTPUT
         )
@@ -121,7 +95,7 @@ default_effort = "high"
         model = Model(ModelConfig(), home=tmp_path)
         messages = [{"role": "user", "content": "Return JSON."}]
         response = model.complete(messages, json_mode=True)
-        assert parse_extraction(response) == OUTPUT
+        assert json.loads(response["content"]) == OUTPUT
         assert any(part["type"] == "think" for part in response["_native_message"]["content"])
         assert "private planning" not in response["content"]
         model.complete([*messages, response, {"role": "user", "content": "Continue."}])

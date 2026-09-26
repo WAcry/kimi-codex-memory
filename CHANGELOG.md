@@ -1,3 +1,18 @@
+# 1.0.4
+
+- Submit extraction results through one terminal submit_memory_extraction tool,
+  using Codex v2's two required string fields. Never parse answer prose or
+  reasoning as the extraction result; valid tool arguments finish the job without
+  a follow-up model call.
+- Keep native Kimi streaming/tool/thinking handling for all three protocols.
+  Default to auto for gateway compatibility; direct official OpenAI endpoints
+  additionally enforce strict arguments, required tool use and no parallel calls.
+- Validate complete tool calls, field types, duplicate keys and completion state.
+  Bad submissions retain old memories, use existing bounded retries, and do not
+  block other sources. No configuration or stored-data migration is needed.
+- Add split-argument stream, strict wire-format, reasoning separation and
+  frozen-package regressions across Chat, Responses and Anthropic.
+
 # 1.0.3
 
 - Keep SDK debug logging disabled inside the private native-request pipe. User

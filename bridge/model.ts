@@ -5,6 +5,8 @@ import { Agent, EnvHttpProxyAgent, fetch as transportFetch } from 'undici';
 import { createOpenAIRequester, openAIBase } from '#native/llm/requester/bases/openai/requester';
 import { createOpenAIResponsesRequester, openAIResponsesBase } from '#native/llm/requester/bases/openai-responses/requester';
 import { createAnthropicRequester, anthropicBase } from '#native/llm/requester/bases/anthropic/requester';
+import { defaultOpenAITool } from '#native/llm/requester/bases/openai/format';
+import { defaultOpenAIResponsesTool } from '#native/llm/requester/bases/openai-responses/format';
 import { createMessageAccumulator, extractText } from '#native/llm/message';
 import { resolveThinkingEffortForModel, resolveThinkingKeep } from '#native/llm/thinking';
 import { kimiOpenAITrait, kimiAnthropicTrait } from '#native/llm-kimi/trait';
@@ -49,6 +51,16 @@ async function main() {
   let usage: any;
   try {
     const options = c.options || {};
+    const outputTool = input.output_tool;
+    if (outputTool && (input.json_mode || input.tools?.length !== 1 ||
+        input.tools[0]?.function?.name !== outputTool.name)) throw new Error('invalid_output_tool');
+    const strictOutput = outputTool?.strict === true;
+    // Auto is compatible with thinking and gateways that do not support forced tools.
+    const choice = strictOutput ? {tool_choice:'required',parallel_tool_calls:false}
+      : {tool_choice:'auto'};
+    const extraParams: any = !outputTool ? undefined : c.protocol === 'anthropic'
+      ? {anthropic:{tool_choice:{type:'auto'}}}
+      : c.protocol === 'openai_responses' ? {responses:choice} : {openai:choice};
     const base = c.protocol === 'openai' ? openAIBase
       : c.protocol === 'openai_responses' ? openAIResponsesBase
       : c.protocol === 'anthropic' ? anthropicBase : null;
@@ -74,10 +86,15 @@ async function main() {
     });
     const trait = c.provider_type === 'kimi' ? kimiOpenAITrait : {};
     const requester = c.protocol === 'openai'
-      ? createOpenAIRequester({trait:{...trait, ...(options.reasoning_key ? {reasoningKey:options.reasoning_key} : {})},
+      ? createOpenAIRequester({trait:{...trait, ...(options.reasoning_key ? {reasoningKey:options.reasoning_key} : {}),
+          ...(strictOutput ? {convertTool:(tool: any) => {
+            const wire: any = defaultOpenAITool(tool);
+            return {...wire,function:{...wire.function,strict:true}};
+          }} : {})},
           clientFactory:request => new OpenAI(clientOptions(request) as any)})
       : c.protocol === 'openai_responses'
-        ? createOpenAIResponsesRequester({clientFactory:request => new OpenAI(clientOptions(request) as any)})
+        ? createOpenAIResponsesRequester({trait:strictOutput ? {convertTool:tool => ({...defaultOpenAIResponsesTool(tool),strict:true})} : undefined,
+            clientFactory:request => new OpenAI(clientOptions(request) as any)})
         : createAnthropicRequester({trait:c.provider_type === 'kimi' ? kimiAnthropicTrait : undefined,
             clientFactory:request => new Anthropic({...clientOptions(request),
               ...(c.oauth ? {apiKey:null, authToken:c.key} : {}),
@@ -95,6 +112,7 @@ async function main() {
     await requester.generate({
       model, systemPrompt:input.messages.filter((m: any) => m.role === 'system').map((m: any) => m.content).join('\n\n'),
       tools:(input.tools || []).map((tool: any) => tool.function),
+      extraParams,
       responseFormat:input.json_mode ? (c.protocol === 'anthropic'
         ? {type:'json_schema',jsonSchema:{name:'memory_summary',strict:true,schema:{
           type:'object',properties:{rollout_summary:{type:'string'},rollout_slug:{type:'string'}},

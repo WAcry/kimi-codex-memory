@@ -63,7 +63,7 @@ class ModelConfig:
     kimi_provider: str = ""
     timeout_seconds: int = 180
     max_output_tokens: int = 0
-    json_mode: bool = True
+    json_mode: bool = True  # Retained for compatible generic requests; extraction uses a tool.
     context_window: int = 0
     max_response_bytes: int = 2 * 1024 * 1024
 

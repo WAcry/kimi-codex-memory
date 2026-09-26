@@ -39,8 +39,8 @@ Codex 的专用 add_ad_hoc_note 工具可以独立于摘要暴露（需要启用
 | 执行模板 | 相对原文的必要修改 |
 | --- | --- |
 | read_path_v2 | session summary 术语、Grep/rg、独立 notes 路径、异步 notes 语义、session_id 到引用字段的直接映射 |
-| stage_one_input_v2 | session 上下文与真实 ID；说明输入来自过滤后的 Kimi transcript 而非 raw JSONL |
-| stage_one_system_v2 | 两处 rollout 文本称谓改为 session，JSON 输出字段不变 |
+| stage_one_input_v2 | session 上下文与真实 ID；过滤后的 Kimi transcript；最终交付使用结果 Tool |
+| stage_one_system_v2 | rollout 文本称谓改为 session，结果通过 submit_memory_extraction；双字符串字段和内容规则不变 |
 | consolidation_v2 | session_id 索引、预算占位符和实际可用的 write_summary 工具；其余格式/筛选要求保留 |
 | ad_hoc_instructions | 无修改 |
 | notes_only | 无完整摘要时使用的自有短模板，沿用明确请求写 note 与后续合并语义，不增加检索/引用规则 |

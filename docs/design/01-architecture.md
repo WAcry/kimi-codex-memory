@@ -14,7 +14,7 @@ SessionStart / TurnStarted / Stop / SessionEnd
            └→ 元数据通知队列 → 独立 worker 进程
                     │
                     ├→ Kimi 当前 transcript API → 引用同步
-                    ├→ 闲置来源 → 无工具提取模型 → SQLite 摘要
+                    ├→ 闲置来源 → 提取模型的终止式结果 Tool → SQLite 摘要
                     └→ 选集 + 文件 diff → 受限合并模型 → 原子发布
 ```
 

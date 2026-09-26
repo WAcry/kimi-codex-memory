@@ -64,13 +64,13 @@ Python Model 解析 Kimi 当前默认配置与凭据，之后通过有界 stdin/
 传递配置的 capability/always_thinking、reasoning_key、effort/keep、
 上下文和输出上限。Chat 的思考字段、Responses encrypted content、
 Anthropic signed thinking 和 tool outputs 由上游格式代码回放。
-_native_message 只存于单次合并的内存；extraction 最终文本来自
-原生 extractText，不包括 think part。无法完成/只有思考/输出超限
+_native_message 只存于单次合并的内存；正文由原生 extractText 获取，
+工具与 think part 分开。无法完成/只有思考/输出超限
 仍是错误，不强行生成空摘要或从中猜一个 JSON。
 
-提取的两个字符串仍由本项目最终验证。Chat/Responses 使用 json_object，
-Anthropic 使用原生要求的 json_schema。没有模型能力或 schema 支持
-保证时也不能忽略输出验证。只有完整 JSON 围栏/BOM 可移除。
+提取的两个字符串按 ADR 0011 由唯一的结果 Tool 提交，本项目最终验证
+其参数，不再从正文解析 JSON。通用 bridge 仍接受已有的 json_mode
+调用，但提取不使用该通道；不移除围栏或修补工具参数。
 
 模型请求 SDK 重试关闭；认证 401 仍只刷新一次。网络只允许声明的
 端点 origin、不跟随重定向；loopback 直接访问，远端继承 HTTP(S)
@@ -88,6 +88,6 @@ Anthropic 使用原生要求的 json_schema。没有模型能力或 schema 支�
 坏 notes、发布后清理失败、重试和去重状态、公开 1.0.0 数据样例。
 
 native requester 测试使用真实 Kimi 运行桥与本地 SSE provider，
-覆盖三协议 JSON、工具回传、thinking 仅在思考、签名/加密思考、401、
+覆盖三协议结果工具、工具回传、thinking 仅在思考、签名/加密思考、401、
 429、输出上限、重定向。六平台还执行 frozen worker 的三协议端到端
 提取/合并，同时故意加入一个坏来源和一个已删除通知。
