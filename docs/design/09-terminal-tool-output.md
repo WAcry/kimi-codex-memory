@@ -4,8 +4,9 @@
 
 extraction_output.py 是结果函数的唯一 Python 定义：名称、tool
 description、JSON Schema 和参数验证器。worker.extract_one 仅提供
-该工具并指定 output_tool，不再设置 json_mode=True，也不读取回答
-正文。两字段语义、空结果检查、字节上限和 owner/source-version
+该工具并指定 output_tool，不设置 json_mode=True。按 ADR 0012 先
+选择最后一个合法调用，必要时才回退到最终正文。两字段语义、空结果
+检查、字节上限和 owner/source-version
 存储条件不变。Model 输入预算现在也计入工具定义。
 
 output_tool 是内部请求契约，不是开放给用户的工具管理开关。
@@ -27,9 +28,10 @@ api.openai.com.evil.test、网关 URL 路径中的域名和模型名称均不能
 Anthropic 和 Kimi 保持原生 auto，避免 forced choice 与 thinking
 的已知限制；strict 支持不明不是不能使用结果工具的理由。
 
-原生工具调用参数仍需正常 JSON 解码。这不同于在自由文本中找括号、
-去围栏或从推理中提取答案。允许与有效 tool call 同时出现的普通
-说明，但不会存储它；如果只有正文 JSON，失败而不回退。
+原生工具调用参数仍需正常 JSON 解码。有合法 tool call 时不扫描
+正文；多个调用按响应顺序逆序校验，未知/坏调用不能阻止更早的合法
+结果。仅当没有合法调用时从 final text 选择最大的 schema-valid
+JSON，具体边界见 DESIGN 10；reasoning 不参与候选。
 
 ## 不变的故障边界
 

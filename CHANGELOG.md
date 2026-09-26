@@ -1,3 +1,17 @@
+# 1.0.5
+
+- Accept the last valid submit_memory_extraction call instead of rejecting an
+  otherwise usable response with multiple calls. Invalid or unrelated later
+  calls cannot hide an earlier valid submission.
+- When no valid submission exists, select the largest complete, schema-valid
+  JSON object from final answer text. Measure the original object's UTF-8 bytes;
+  prefer the later object on a size tie. Never use reasoning or repair JSON.
+- Apply the same schema, Unicode, slug and empty-result checks before selection.
+  Truncated responses and invalid results still preserve existing memories and
+  use per-source retries. No schema, configuration or reader migration required.
+- Add three-protocol streaming and frozen-package tests for corrected tool calls,
+  final-output fallback, channel isolation and unchanged batch progress.
+
 # 1.0.4
 
 - Submit extraction results through one terminal submit_memory_extraction tool,

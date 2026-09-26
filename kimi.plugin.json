@@ -1,6 +1,6 @@
 {
   "name": "kimi-codex-memory",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "External memory v2 with offline reading and background generation",
   "license": "Apache-2.0",
   "hooks": [

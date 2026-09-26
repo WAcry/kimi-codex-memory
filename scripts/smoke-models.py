@@ -5,11 +5,13 @@ import json
 import os
 import platform
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
 from dataclasses import replace
+from itertools import product
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,12 +74,28 @@ def main():
                 "session_bad", now - 35000, now - 40000, str(base / "workspace"), "workspace_test"
             ),
         )
-        for protocol in ("openai", "openai_responses", "anthropic"):
-            home = base / protocol
+        for protocol, mode in product(
+            ("openai", "openai_responses", "anthropic"),
+            ("multiple_tools", "invalid_tools", "no_tools"),
+        ):
+            home = base / f"{protocol}-{mode}"
             env["KIMI_MEMORY_HOME"] = str(home)
             script = ScriptModel()
+            expected = {
+                "rollout_summary": f"Verified {protocol} {mode}. " * 40,
+                "rollout_slug": "selected",
+            }
 
-            def provider(method, path, body, headers, protocol=protocol, script=script):
+            def provider(
+                method,
+                path,
+                body,
+                headers,
+                protocol=protocol,
+                script=script,
+                mode=mode,
+                expected=expected,
+            ):
                 if not script.calls:
                     assert len(body["tools"]) == 1
                     tool = body["tools"][0].get("function", body["tools"][0])
@@ -115,6 +133,42 @@ def main():
                                     text = "".join(item.get("text", "") for item in text)
                                 messages.append({"role": "tool", "content": text})
                 response = script.complete(messages, tools=body.get("tools"))
+                if len(script.calls) == 1:
+                    first = response["tool_calls"][0]
+                    invalid = {"rollout_summary": "WRONG LARGE INVALID " * 500, "raw_memory": "v1"}
+                    bad_call = {
+                        **first,
+                        "id": "bad-result",
+                        "function": {**first["function"], "arguments": json.dumps(invalid)},
+                    }
+                    if mode == "multiple_tools":
+                        corrected = {
+                            **first,
+                            "id": "corrected-result",
+                            "function": {**first["function"], "arguments": json.dumps(expected)},
+                        }
+                        response["tool_calls"] = [first, corrected, bad_call]
+                        response["content"] = json.dumps(
+                            {
+                                "rollout_summary": "IGNORED LARGE FINAL " * 500,
+                                "rollout_slug": "ignored",
+                            }
+                        )
+                    else:
+                        response["tool_calls"] = [bad_call] if mode == "invalid_tools" else []
+                        small = json.dumps(
+                            {"rollout_summary": "short example", "rollout_slug": "short"}
+                        )
+                        response["content"] = (
+                            "Example: "
+                            + small
+                            + "\n"
+                            + json.dumps(invalid)
+                            + "\n"
+                            + json.dumps(expected)
+                            + "\n"
+                            + small
+                        )
                 if protocol == "openai":
                     return 200, {
                         "choices": [
@@ -136,8 +190,8 @@ def main():
                         }
                         for call in response.get("tool_calls", [])
                     ]
-                    if not output:
-                        output = [
+                    if response.get("content"):
+                        output += [
                             {
                                 "type": "message",
                                 "role": "assistant",
@@ -156,7 +210,12 @@ def main():
                 ]
                 return 200, {
                     "stop_reason": "tool_use" if content else "end_turn",
-                    "content": content or [{"type": "text", "text": response["content"]}],
+                    "content": content
+                    + (
+                        [{"type": "text", "text": response["content"]}]
+                        if response.get("content")
+                        else []
+                    ),
                 }
 
             native = NativeApi([bad, good])
@@ -194,7 +253,9 @@ api_key_env = "KIMI_MEMORY_API_KEY"
                 assert result.returncode == 0, result.stderr[-1000:]
                 status = json.loads(result.stdout)
                 assert status["state"] == "degraded" and status["extractions"] == ["extracted"], (
-                    status
+                    protocol,
+                    mode,
+                    status,
                 )
                 assert status["missing_sessions"] == 1 and status["retention_deferred"]
                 assert status["model_calls"] == len(requests) == 6
@@ -202,9 +263,14 @@ api_key_env = "KIMI_MEMORY_API_KEY"
                     "generation"
                 ]
                 assert (home / "_generations" / generation / "memory_summary.md").is_file()
+                with sqlite3.connect(home / "state.sqlite") as db:
+                    row = db.execute(
+                        "SELECT summary,slug FROM summaries WHERE source_id=?", (source.id,)
+                    ).fetchone()
+                    assert row == (expected["rollout_summary"].strip(), expected["rollout_slug"])
                 assert not (home / "queue/deleted.json").exists()
         print(
-            "PASS frozen requester: terminal result tool on Chat, Responses, Anthropic; bad/deleted sources isolated; one extraction call; only local synthetic models."
+            "PASS frozen requester: last valid tool and largest valid final JSON on Chat, Responses, Anthropic; bad/deleted sources isolated; one extraction call; only local synthetic models."
         )
 
 

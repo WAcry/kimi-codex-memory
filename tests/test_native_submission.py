@@ -5,6 +5,7 @@ import json
 import pytest
 from conftest import serve
 from provider_stream import stream_response
+from test_extraction_fallback import prose, tool
 from test_tool_submission import OUTPUT, submitted
 
 from kimi_memory.config import ModelConfig
@@ -155,7 +156,9 @@ def test_official_openai_policy_reaches_the_final_wire_not_just_a_python_tool_di
 
 @pytest.mark.parametrize("protocol", PROTOCOLS)
 @pytest.mark.parametrize("failure", ["text_only", "wrong_name", "wrong_schema", "multiple_calls"])
-def test_tool_output_failure_never_falls_back_to_text_or_thinking(tmp_path, protocol, failure):
+def test_tool_output_falls_back_to_final_text_only_when_no_valid_tool_exists(
+    tmp_path, protocol, failure
+):
     result = submitted(content=json.dumps(OUTPUT))
     if failure == "text_only":
         result["tool_calls"] = []
@@ -171,8 +174,79 @@ def test_tool_output_failure_never_falls_back_to_text_or_thinking(tmp_path, prot
         model = Model(
             ModelConfig(base_url=origin, model="test-only", protocol=protocol), home=tmp_path
         )
+        assert parse_extraction(invoke(model)) == OUTPUT
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("protocol", PROTOCOLS)
+def test_native_multiple_submissions_select_last_valid_tool_not_larger_final_json(
+    tmp_path, protocol
+):
+    corrected = {"rollout_summary": "Corrected completed task", "rollout_slug": "corrected"}
+    final = {"rollout_summary": "IGNORED LARGE PROSE " * 400, "rollout_slug": "ignored"}
+    result = prose(
+        json.dumps(final),
+        [tool({}), tool(), tool(corrected), tool({"rollout_summary": False, "rollout_slug": "x"})],
+    )
+    for index, call in enumerate(result["tool_calls"]):
+        call["id"] = f"call-{index}"
+    with serve(lambda *_: (200, wire_result(protocol, result))) as (origin, requests):
+        model = Model(ModelConfig(base_url=origin, model="local", protocol=protocol), home=tmp_path)
+        response = invoke(model)
+        assert len(response["tool_calls"]) == 4
+        assert parse_extraction(response) == corrected
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("protocol", PROTOCOLS)
+@pytest.mark.parametrize("has_invalid_calls", [False, True])
+def test_native_final_fallback_selects_largest_valid_object_across_text_blocks(
+    tmp_path, protocol, has_invalid_calls
+):
+    largest = {"rollout_summary": "Meaningful final evidence 猫 " * 50, "rollout_slug": "largest"}
+    huge_invalid = {"rollout_summary": "not valid " * 1000, "raw_memory": "wrong schema"}
+    fence = chr(96) * 3
+    text = (
+        "Brief example: "
+        + json.dumps(OUTPUT)
+        + "\n"
+        + json.dumps(huge_invalid)
+        + "\n"
+        + fence
+        + "json\n"
+        + json.dumps(largest, ensure_ascii=False)
+        + "\n"
+        + fence
+        + "\n"
+        + json.dumps(OUTPUT)
+    )
+    result = prose(text, [tool({})] if has_invalid_calls else [])
+    with serve(lambda *_: (200, wire_result(protocol, result))) as (origin, requests):
+        model = Model(ModelConfig(base_url=origin, model="local", protocol=protocol), home=tmp_path)
+        response = invoke(model)
+        assert parse_extraction(response) == largest
+        assert any(p["type"] == "think" for p in response["_native_message"]["content"])
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("protocol", PROTOCOLS)
+@pytest.mark.parametrize(
+    "final",
+    [
+        "No result",
+        '{"rollout_summary": false, "rollout_slug": "x"}',
+        '{"rollout_summary":"x","rollout_summary":"y","rollout_slug":"x"}',
+    ],
+)
+def test_invalid_tool_and_final_text_still_fail_without_promoting_reasoning(
+    tmp_path, protocol, final
+):
+    result = prose(final, [tool({})])
+    with serve(lambda *_: (200, wire_result(protocol, result))) as (origin, requests):
+        model = Model(ModelConfig(base_url=origin, model="local", protocol=protocol), home=tmp_path)
+        response = invoke(model)
         with pytest.raises(ExtractionOutputError):
-            parse_extraction(invoke(model))
+            parse_extraction(response)
     assert len(requests) == 1
 
 
@@ -185,10 +259,15 @@ def test_tool_output_failure_never_falls_back_to_text_or_thinking(tmp_path, prot
         ("anthropic", "max_tokens"),
     ],
 )
+@pytest.mark.parametrize("has_tool", [False, True])
 def test_even_complete_looking_arguments_are_rejected_when_response_is_incomplete(
-    tmp_path, protocol, finish
+    tmp_path, protocol, finish, has_tool
 ):
-    with serve(lambda *_: (200, wire_result(protocol, finish=finish))) as (origin, requests):
+    result = submitted() if has_tool else prose(json.dumps(OUTPUT))
+    with serve(lambda *_: (200, wire_result(protocol, result, finish=finish))) as (
+        origin,
+        requests,
+    ):
         model = Model(
             ModelConfig(base_url=origin, model="test-only", protocol=protocol), home=tmp_path
         )
@@ -198,11 +277,13 @@ def test_even_complete_looking_arguments_are_rejected_when_response_is_incomplet
 
 
 @pytest.mark.parametrize("protocol", PROTOCOLS)
+@pytest.mark.parametrize("has_tool", [False, True])
 def test_complete_tool_arguments_without_a_response_completion_event_are_not_accepted(
-    tmp_path, protocol
+    tmp_path, protocol, has_tool
 ):
     def provider(method, path, body, headers):
-        raw = stream_response(path, wire_result(protocol))
+        result = submitted() if has_tool else prose(json.dumps(OUTPUT))
+        raw = stream_response(path, wire_result(protocol, result))
         blocks = []
         for block in raw.split(b"\n\n"):
             data = next(

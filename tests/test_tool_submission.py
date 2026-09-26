@@ -1,4 +1,4 @@
-"""Terminal extraction contract: one tool, no text/reasoning fallback, no tool execution."""
+"""Tool-first extraction contract and bounded transport policy; no tool execution."""
 
 import json
 from dataclasses import replace
@@ -68,9 +68,8 @@ def test_valid_tool_arguments_are_the_only_result_even_when_text_and_reasoning_c
 @pytest.mark.parametrize(
     "calls", [None, [], {}, [None], ["text"], [{}], [submitted()["tool_calls"][0]] * 2]
 )
-def test_missing_or_multiple_calls_never_fall_back_to_json_text(calls):
-    with pytest.raises(ExtractionOutputError):
-        parse_extraction(submitted(content=json.dumps(OUTPUT), tool_calls=calls))
+def test_no_valid_tool_uses_final_json_and_duplicate_valid_calls_are_accepted(calls):
+    assert parse_extraction(submitted(content=json.dumps(OUTPUT), tool_calls=calls)) == OUTPUT
 
 
 @pytest.mark.parametrize(
@@ -212,7 +211,7 @@ def test_extraction_uses_one_terminal_tool_without_json_mode_or_confirmation(
         store.close()
 
 
-def test_plain_text_json_fails_one_source_without_erasing_previous_memory_or_blocking_peers(
+def test_invalid_output_fails_one_source_without_erasing_previous_memory_or_blocking_peers(
     home, config, transcript
 ):
     bad, good = pair(transcript)
@@ -223,7 +222,7 @@ def test_plain_text_json_fails_one_source_without_erasing_previous_memory_or_blo
     class BadText(ScriptModel):
         def complete(self, messages, **kwargs):
             if "session_id: session_bad" in messages[-1]["content"]:
-                return {"role": "assistant", "content": json.dumps(OUTPUT)}
+                return {"role": "assistant", "content": '{"rollout_summary": false}'}
             return super().complete(messages, **kwargs)
 
     result, _ = run_with(home, config, NativeApi([bad, good]), models=(BadText(), ScriptModel()))

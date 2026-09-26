@@ -20,8 +20,9 @@ ID、cwd、分支提示及证据等数据占位符。
 问答 interaction 与工具调用关联；已回答的人类内容作为 Human 证据，不把
 工具的 assistant 包装当成用户偏好。注入内容与 thinking 不作为新的人类证据。
 
-模型只有 submit_memory_extraction 结果工具，没有外部操作能力。仅从
-完整调用的参数验证 rollout_summary 和 rollout_slug 两个字符串，
+模型只有 submit_memory_extraction 结果工具，没有外部操作能力。优先
+最后一个合法调用；没有合法调用才从完整 final text 选择最大的匹配
+JSON。两条路径统一验证 rollout_summary 和 rollout_slug 两个字符串，
 检查空输出与字节限制，并在发送前及存储前尽力脱敏。模型改变不保证内容质量
 或措辞与 Codex 相同；确定性机制测试与模型质量评估是两件事。
 
