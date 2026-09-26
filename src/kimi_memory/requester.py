@@ -43,13 +43,25 @@ def native_request(connection, messages, tools, *, json_mode, config, command=()
             **process_options(),
             check=False,
         )
-        if result.returncode or len(result.stdout.encode()) > config.max_response_bytes * 2 + 4096:
-            raise ValueError("native request failed")
+        if result.returncode:
+            error = ModelError(f"Kimi model requester process exited with code {result.returncode}")
+            error.code = "model_process_exit"
+            raise error
+        if len(result.stdout.encode()) > config.max_response_bytes * 2 + 4096:
+            error = ModelError("Kimi model requester response exceeds its byte limit")
+            error.code = "model_response_limit"
+            raise error
         reply = json.loads(result.stdout)
         if not isinstance(reply, dict):
             raise ValueError("invalid native response")
+    except subprocess.TimeoutExpired as exc:
+        error = ModelError("Kimi model requester timed out")
+        error.code = "model_timeout"
+        raise error from exc
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
-        raise ModelError("Kimi model requester failed or timed out") from exc
+        error = ModelError("Kimi model requester did not return a valid protocol response")
+        error.code = "model_requester_protocol"
+        raise error from exc
     if reply.get("error"):
         error = ModelError("Native Kimi model request did not return a completed final response")
         if type(reply.get("status")) is int:
